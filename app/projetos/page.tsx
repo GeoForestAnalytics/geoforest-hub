@@ -2,15 +2,24 @@
 import { useEffect, useState } from "react";
 import { db, auth } from "../lib/firebase";
 import { collection, onSnapshot, query } from "firebase/firestore";
-import { Projeto } from "../lib/types/forestry";
-import Link from "next/link"; // 1. Importamos o Link aqui
+import Link from "next/link";
+
+// Definimos a interface aqui para garantir que o VS Code entenda os novos campos
+interface Projeto {
+  id: string;
+  nome: string;
+  empresa: string;
+  responsavel: string;
+  status: string;
+  totalTalhoes?: number;      // Campo opcional: total de talhões
+  talhoesConcluidos?: number; // Campo opcional: quantos estão prontos
+}
 
 export default function ProjetosPage() {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Escuta se o usuário está logado
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
         const q = query(collection(db, `clientes/${user.uid}/projetos`));
@@ -49,35 +58,44 @@ export default function ProjetosPage() {
         <div className="animate-pulse flex space-x-4 text-emerald-600">Carregando dados do Firebase...</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {projetos.map((proj) => (
-            /* 2. O Link envolve o card inteiro para ele ficar clicável */
-            <Link href={`/projetos/${proj.id}`} key={proj.id}>
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md hover:border-emerald-500 transition cursor-pointer group">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-bold text-lg text-slate-800 group-hover:text-emerald-600">{proj.nome}</h3>
-                  <span className="text-xs font-bold uppercase px-2 py-1 bg-blue-100 text-blue-700 rounded-md">
-                    {proj.status}
-                  </span>
-                </div>
-                
-                <div className="space-y-2 mb-6">
-                  <p className="text-sm text-slate-600"><strong>Cliente:</strong> {proj.empresa}</p>
-                  <p className="text-sm text-slate-600"><strong>Resp:</strong> {proj.responsavel}</p>
-                </div>
+          {projetos.map((proj) => {
+            // Lógica de cálculo de progresso
+            const total = proj.totalTalhoes || 0;
+            const concluidos = proj.talhoesConcluidos || 0;
+            const porcentagem = total > 0 ? Math.round((concluidos / total) * 100) : 0;
 
-                {/* Indicador de Progresso (Simulado) */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-medium">
-                    <span>Progresso da Coleta</span>
-                    <span>75%</span>
+            return (
+              <Link href={`/projetos/${proj.id}`} key={proj.id}>
+                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md hover:border-emerald-500 transition cursor-pointer group">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="font-bold text-lg text-slate-800 group-hover:text-emerald-600">{proj.nome}</h3>
+                    <span className="text-xs font-bold uppercase px-2 py-1 bg-blue-100 text-blue-700 rounded-md">
+                      {proj.status}
+                    </span>
                   </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-emerald-500 h-full w-3/4"></div>
+                  
+                  <div className="space-y-2 mb-6">
+                    <p className="text-sm text-slate-600"><strong>Cliente:</strong> {proj.empresa}</p>
+                    <p className="text-sm text-slate-600"><strong>Resp:</strong> {proj.responsavel}</p>
+                  </div>
+
+                  {/* Indicador de Progresso Real */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs font-medium">
+                      <span>Progresso da Coleta</span>
+                      <span>{porcentagem}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-emerald-500 h-full transition-all duration-500" 
+                        style={{ width: `${porcentagem}%` }}
+                      ></div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
           
           {projetos.length === 0 && !loading && (
             <div className="col-span-full py-20 text-center bg-white rounded-xl border-2 border-dashed border-slate-200 text-slate-400">
