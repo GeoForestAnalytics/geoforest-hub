@@ -4,6 +4,8 @@ import { useParams, useRouter } from "next/navigation";
 import { db, auth } from "@/app/lib/firebase";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
+// IMPORTANTE: Adicionada a importação do ícone abaixo
+import { ArrowLeft } from "lucide-react";
 
 interface ArvoreAuditada {
   id: string;
@@ -46,7 +48,6 @@ export default function AuditoriaTabular() {
       // 2. BUSCA PARCELAS (DADOS_COLETA)
       addLog(`Buscando parcelas do talhão ${talhaoIdUrl}...`);
       
-      // Criamos uma query que aceita o ID como String ou como Número
       const qPar = query(
         collection(db, `clientes/${uid}/dados_coleta`),
         where("talhaoId", "in", [talhaoIdUrl, Number(talhaoIdUrl)])
@@ -80,7 +81,6 @@ export default function AuditoriaTabular() {
           let status: "OK" | "ERRO" | "ALERTA" = "OK";
           let msgs = [];
 
-          // Regras de Consistência (Excel Inteligente)
           if (cap > 220) { status = "ERRO"; msgs.push("CAP > 220"); }
           if (relHD > 160) { status = "ALERTA"; msgs.push("H/D Alto"); }
           if (alt > 45) { status = "ERRO"; msgs.push("Altura > 45m"); }
@@ -101,7 +101,6 @@ export default function AuditoriaTabular() {
         });
       }
 
-      // Ordenação: Parcela -> Linha -> Posição
       listaTemp.sort((a, b) => Number(a.parcela) - Number(b.parcela) || a.linha - b.linha || a.posicao - b.posicao);
       
       setLinhas(listaTemp);
@@ -134,16 +133,27 @@ export default function AuditoriaTabular() {
 
   return (
     <div className="p-4 bg-slate-50 min-h-screen">
-      {/* HEADER RESUMO */}
+      {/* HEADER RESUMO COM BOTÃO VOLTAR */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-4">
         <div className="flex justify-between items-center">
           <div>
+            <button 
+              onClick={() => router.back()} 
+              className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 hover:text-emerald-600 mb-2 transition-colors"
+            >
+              <ArrowLeft size={12}/> Voltar ao Projeto
+            </button>
+            
             <h1 className="text-xl font-black text-slate-800 uppercase">Talhão: {talhao?.nome}</h1>
             <p className="text-xs text-slate-500">
-                Análise Tabular de Consistência | <span className="font-bold text-emerald-600">{linhas.length} fustes</span>
+              Análise Tabular de Consistência | <span className="font-bold text-emerald-600">{linhas.length} fustes</span>
             </p>
           </div>
-          <button onClick={() => executarAuditoria(auth.currentUser!.uid)} className="text-[10px] font-bold bg-slate-100 px-3 py-2 rounded-lg border">
+          
+          <button 
+            onClick={() => executarAuditoria(auth.currentUser!.uid)} 
+            className="text-[10px] font-bold bg-slate-100 px-4 py-2 rounded-lg border hover:bg-slate-200 transition-colors"
+          >
             ATUALIZAR DADOS
           </button>
         </div>

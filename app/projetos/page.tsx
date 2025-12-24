@@ -4,15 +4,14 @@ import { db, auth } from "../lib/firebase";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import Link from "next/link";
 
-// Definimos a interface aqui para garantir que o VS Code entenda os novos campos
 interface Projeto {
   id: string;
   nome: string;
   empresa: string;
   responsavel: string;
   status: string;
-  totalTalhoes?: number;      // Campo opcional: total de talhões
-  talhoesConcluidos?: number; // Campo opcional: quantos estão prontos
+  totalTalhoes?: number;
+  talhoesConcluidos?: number;
 }
 
 export default function ProjetosPage() {
@@ -23,22 +22,19 @@ export default function ProjetosPage() {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
         const q = query(collection(db, `clientes/${user.uid}/projetos`));
-        
         const unsubDb = onSnapshot(q, (snapshot) => {
           const docs = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
-          })) as any;
+          })) as Projeto[];
           setProjetos(docs);
           setLoading(false);
         });
-
         return () => unsubDb();
       } else {
         setLoading(false);
       }
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -55,11 +51,10 @@ export default function ProjetosPage() {
       </header>
 
       {loading ? (
-        <div className="animate-pulse flex space-x-4 text-emerald-600">Carregando dados do Firebase...</div>
+        <div className="animate-pulse text-emerald-600">Carregando dados...</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {projetos.map((proj) => {
-            // Lógica de cálculo de progresso
             const total = proj.totalTalhoes || 0;
             const concluidos = proj.talhoesConcluidos || 0;
             const porcentagem = total > 0 ? Math.round((concluidos / total) * 100) : 0;
@@ -79,7 +74,6 @@ export default function ProjetosPage() {
                     <p className="text-sm text-slate-600"><strong>Resp:</strong> {proj.responsavel}</p>
                   </div>
 
-                  {/* Indicador de Progresso Real */}
                   <div className="space-y-1">
                     <div className="flex justify-between text-xs font-medium">
                       <span>Progresso da Coleta</span>
@@ -96,12 +90,6 @@ export default function ProjetosPage() {
               </Link>
             );
           })}
-          
-          {projetos.length === 0 && !loading && (
-            <div className="col-span-full py-20 text-center bg-white rounded-xl border-2 border-dashed border-slate-200 text-slate-400">
-              Nenhum projeto encontrado.
-            </div>
-          )}
         </div>
       )}
     </div>
