@@ -4,7 +4,15 @@ import { useParams, useRouter } from "next/navigation";
 import { db, auth } from "../../lib/firebase";  
 import { doc, getDoc, collection, onSnapshot, query, where } from "firebase/firestore";
 import Link from "next/link";
-import { BarChart2, ChevronDown, ChevronUp, MapPin, TreeDeciduous, LayoutDashboard } from "lucide-react";
+import { 
+  BarChart2, 
+  ChevronDown, 
+  ChevronUp, 
+  MapPin, 
+  TreeDeciduous, 
+  LayoutDashboard, 
+  Ruler 
+} from "lucide-react";
 
 export default function DetalhesProjeto() {
   const params = useParams(); 
@@ -41,11 +49,10 @@ export default function DetalhesProjeto() {
           onSnapshot(collection(db, `clientes/${uid}/fazendas`), (snap) => {
             const listaFazendas = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             setFazendas(listaFazendas);
-            // Inicia todas abertas por padrão
             setFazendasAbertas(new Set(listaFazendas.map(f => f.id)));
           });
 
-          // 4. BUSCA TALHÕES (Busca todos para permitir filtro em memória)
+          // 4. BUSCA TALHÕES
           onSnapshot(collection(db, `clientes/${uid}/talhoes`), (snap) => {
             setTalhoes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
           });
@@ -87,31 +94,39 @@ export default function DetalhesProjeto() {
         <span className="text-slate-900">{projeto?.nome}</span>
       </nav>
 
-      {/* HEADER DO PROJETO COM BOTÃO DE AUDITORIA GERAL */}
-      <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-sm mb-8 flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="text-center md:text-left">
+      {/* HEADER COM BOTÕES MESTRES */}
+      <div className="bg-white rounded-[40px] p-10 border border-slate-200 shadow-sm mb-8 flex flex-col xl:flex-row justify-between items-center gap-6">
+        <div className="text-center xl:text-left">
           <h1 className="text-5xl font-black text-slate-900 mb-2 tracking-tighter">{projeto?.nome}</h1>
-          <p className="text-slate-500 font-medium flex items-center gap-2 justify-center md:justify-start">
+          <p className="text-slate-500 font-medium flex items-center gap-2 justify-center xl:justify-start">
             <span className="bg-slate-100 px-3 py-1 rounded-full text-xs font-bold text-slate-600">{projeto?.empresa}</span>
             <span className="text-slate-300">|</span>
             <span className="text-sm font-bold">Responsável: {projeto?.responsavel}</span>
           </p>
         </div>
 
-        {/* BOTÃO MESTRE: CENTRAL DE AUDITORIA (VAI PARA A PLANILHA GERAL) */}
-        <Link 
-          href={`/projetos/${projId}/analise`}
-          className="bg-slate-900 text-emerald-400 px-8 py-5 rounded-[24px] font-black text-sm hover:bg-slate-800 shadow-2xl shadow-emerald-900/20 flex items-center gap-3 transition-all hover:scale-105 active:scale-95"
-        >
-          <BarChart2 size={20} />
-          CENTRAL DE AUDITORIA E ESTRATOS
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+          <Link 
+            href={`/projetos/${projId}/analise`}
+            className="bg-slate-900 text-emerald-400 px-8 py-5 rounded-[24px] font-black text-sm hover:bg-slate-800 shadow-2xl flex items-center justify-center gap-3 transition-all hover:scale-105"
+          >
+            <BarChart2 size={20} />
+            CENTRAL DE AUDITORIA
+          </Link>
+
+          <Link 
+            href={`/projetos/${projId}/cubagem`}
+            className="bg-white border-2 border-slate-900 text-slate-900 px-8 py-5 rounded-[24px] font-black text-sm hover:bg-slate-50 shadow-md flex items-center justify-center gap-3 transition-all hover:scale-105"
+          >
+            <Ruler size={20} />
+            AUDITORIA DE CUBAGEM
+          </Link>
+        </div>
       </div>
 
       <div className="space-y-10">
         {atividades.map((ativ) => (
           <div key={ativ.id} className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-            {/* TÍTULO DA ATIVIDADE */}
             <div className="bg-slate-900 p-5 px-10 flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
@@ -132,8 +147,6 @@ export default function DetalhesProjeto() {
 
                   return (
                     <div key={faz.id} className="border-l-4 border-emerald-500 pl-8 space-y-6">
-                      
-                      {/* SUB-HEADER DA FAZENDA (CLICK TO TOGGLE) */}
                       <div 
                         className="flex items-center justify-between cursor-pointer group"
                         onClick={() => toggleFazenda(faz.id)}
@@ -149,11 +162,10 @@ export default function DetalhesProjeto() {
                             <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-3 py-1 rounded-full">
                                 {talhoesDaFazenda.length} Talhões
                             </span>
-                            {isAberto ? <ChevronUp size={20} className="text-slate-300 group-hover:text-emerald-500" /> : <ChevronDown size={20} className="text-slate-300 group-hover:text-emerald-500" />}
+                            {isAberto ? <ChevronUp size={20} className="text-slate-300" /> : <ChevronDown size={20} className="text-slate-300" />}
                         </div>
                       </div>
 
-                      {/* GRID DE TALHÕES (CONDICIONAL) */}
                       {isAberto && (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
                           {talhoesDaFazenda.length > 0 ? (
@@ -169,8 +181,9 @@ export default function DetalhesProjeto() {
                                 <p className="font-black text-slate-800 text-lg mb-1">{tal.nome}</p>
                                 <p className="text-xs font-bold text-slate-400 uppercase mb-6">{tal.areaHa || 0} ha • {tal.especie || 'N/D'}</p>
 
+                                {/* AQUI ESTÁ A MUDANÇA: O LINK AGORA É DINÂMICO */}
                                 <Link 
-                                  href={`/projetos/${projId}/talhao/${tal.id}`}
+                                  href={`/projetos/${projId}/talhao/${tal.id}${ativ.tipo.includes('CUB') ? '/cubagem' : ''}`}
                                   className="w-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-900 hover:text-emerald-400 hover:border-slate-900 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
                                 >
                                   <LayoutDashboard size={14} />
@@ -180,7 +193,7 @@ export default function DetalhesProjeto() {
                             ))
                           ) : (
                             <div className="col-span-full p-10 bg-slate-100/50 rounded-[24px] border-2 border-dashed border-slate-200 text-center">
-                                <p className="text-xs font-bold text-slate-400 uppercase">Nenhum talhão registrado nesta fazenda.</p>
+                                <p className="text-xs font-bold text-slate-400 uppercase">Nenhum talhão registrado.</p>
                             </div>
                           )}
                         </div>
