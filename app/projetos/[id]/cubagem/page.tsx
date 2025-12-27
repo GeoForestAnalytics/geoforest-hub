@@ -4,7 +4,18 @@ import { useParams, useRouter } from "next/navigation";
 import { db, auth } from "@/app/lib/firebase";
 import { collection, query, where, getDocs, doc } from "firebase/firestore";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { ArrowLeft, Ruler, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, GripVertical, TreeDeciduous, Info } from "lucide-react";
+import { 
+  ArrowLeft, 
+  Ruler, 
+  CheckCircle, 
+  AlertCircle, 
+  ChevronLeft, 
+  ChevronRight, 
+  GripVertical, 
+  TreeDeciduous, 
+  Info,
+  Download 
+} from "lucide-react";
 
 interface Secao {
   alturaMedicao: number;
@@ -77,7 +88,6 @@ export default function AuditoriaCubagem() {
     const uid = auth.currentUser?.uid;
 
     try {
-      // No seu Firebase, a cubagem está em dados_cubagem e filtra por talhaoId
       const qCub = query(
         collection(db, `clientes/${uid}/dados_cubagem`), 
         where("talhaoId", "in", talhoesSel.map(Number))
@@ -88,7 +98,7 @@ export default function AuditoriaCubagem() {
 
       for (const cDoc of cubSnap.docs) {
         const c = cDoc.data();
-        if (c.alturaTotal === 0) continue; // Pula placeholders não medidos
+        if (c.alturaTotal === 0) continue;
 
         const sSnap = await getDocs(collection(cDoc.ref, "secoes"));
         const secoes = sSnap.docs.map(s => {
@@ -100,7 +110,6 @@ export default function AuditoriaCubagem() {
             } as Secao;
         }).sort((a,b) => a.alturaMedicao - b.alturaMedicao);
 
-        // Validação de Consistência Biológica (Afilamento)
         let erroAfilamento = false;
         for (let i = 1; i < secoes.length; i++) {
             if (secoes[i].circunferencia > secoes[i-1].circunferencia) {
@@ -127,10 +136,64 @@ export default function AuditoriaCubagem() {
     } finally { setLoading(false); }
   };
 
+  // FUNÇÃO DE EXPORTAÇÃO CSV
+  const exportarCSV = () => {
+    if (listaCubagem.length === 0) return alert("Não há dados para exportar.");
+
+    const headers = [
+      "Identificador", "Fazenda", "Talhão", "Classe", "CAP (cm)", "Altura Total (m)", 
+      "Status Geral", "H Seção (m)", "Circunf (cm)", "DAP Seção (cm)"
+    ];
+
+    const rows: any[] = [];
+
+    listaCubagem.forEach(arvore => {
+      // Se a árvore tiver seções, exporta uma linha para cada seção
+      if (arvore.secoes.length > 0) {
+        arvore.secoes.forEach(secao => {
+          rows.push([
+            arvore.identificador,
+            arvore.fazenda,
+            arvore.talhao,
+            arvore.classe,
+            arvore.cap.toFixed(1).replace(".", ","),
+            arvore.altura.toFixed(1).replace(".", ","),
+            arvore.status,
+            secao.alturaMedicao.toFixed(2).replace(".", ","),
+            secao.circunferencia.toFixed(1).replace(".", ","),
+            secao.diametro.toFixed(2).replace(".", ",")
+          ]);
+        });
+      } else {
+        // Se não tiver seções, exporta apenas os dados da árvore
+        rows.push([
+          arvore.identificador,
+          arvore.fazenda,
+          arvore.talhao,
+          arvore.classe,
+          arvore.cap.toFixed(1).replace(".", ","),
+          arvore.altura.toFixed(1).replace(".", ","),
+          arvore.status,
+          "", "", ""
+        ]);
+      }
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `cubagem_projeto_${projId}_${new Date().toLocaleDateString("pt-BR").replaceAll("/", "-")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
       
-      {/* SIDEBAR AJUSTÁVEL */}
       <aside 
         style={{ width: sidebarOpen ? `${sidebarWidth}px` : '0px' }} 
         className="bg-slate-900 text-white transition-all duration-300 relative flex flex-col shrink-0 overflow-hidden shadow-2xl"
@@ -175,12 +238,10 @@ export default function AuditoriaCubagem() {
         </div>
       </aside>
 
-      {/* REABRIR SIDEBAR */}
       {!sidebarOpen && (
         <button onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-50 bg-slate-900 text-emerald-400 p-3 rounded-2xl shadow-2xl border border-emerald-500/30"><ChevronRight size={24}/></button>
       )}
 
-      {/* ÁREA DE AUDITORIA */}
       <main className="flex-1 flex flex-col overflow-hidden p-6 gap-6 relative">
         
         {loading ? (
@@ -191,7 +252,6 @@ export default function AuditoriaCubagem() {
         ) : listaCubagem.length > 0 ? (
           <>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[300px] shrink-0">
-               {/* GRÁFICO DE AFILAMENTO */}
                <div className="lg:col-span-2 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-2">
@@ -214,7 +274,6 @@ export default function AuditoriaCubagem() {
                   </div>
                </div>
 
-               {/* CARD DE DADOS DA ÁRVORE */}
                <div className="bg-slate-900 p-8 rounded-3xl text-white shadow-xl flex flex-col justify-center gap-6">
                     <div>
                         <p className="text-emerald-400 text-[10px] font-black uppercase mb-1">Classe Diamétrica</p>
@@ -243,14 +302,21 @@ export default function AuditoriaCubagem() {
                </div>
             </div>
 
-            {/* TABELA DE ÁRVORES CUBADAS */}
             <div className="flex-1 bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col">
               <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                 <div className="flex items-center gap-3">
                     <Ruler size={18} className="text-slate-400" />
                     <h3 className="text-sm font-black text-slate-700 uppercase">Lista de Árvores Derrubadas (Cubagem)</h3>
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Clique na linha para visualizar o gráfico</p>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={exportarCSV}
+                    className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black text-[10px] uppercase tracking-widest"
+                  >
+                    <Download size={14} /> Exportar Planilha
+                  </button>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">Clique na linha para visualizar o gráfico</p>
+                </div>
               </div>
               <div className="overflow-auto flex-1 custom-scrollbar">
                 <table className="w-full text-left text-[11px] border-collapse">

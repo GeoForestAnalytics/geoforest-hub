@@ -32,6 +32,7 @@ import {
   ChevronRight,
   ListFilter,
   Trash2,
+  Download,
 } from "lucide-react";
 
 interface ArvoreAuditada {
@@ -265,6 +266,49 @@ export default function CentralBI() {
     } catch (e) {
       alert("Erro ao salvar.");
     }
+  };
+
+  // FUNÇÃO DE EXPORTAÇÃO CSV
+  const exportarCSV = () => {
+    if (planilhaFiltrada.length === 0) return alert("Não há dados para exportar.");
+
+    // Cabeçalhos do CSV
+    const headers = [
+      "Fazenda", "Talhão", "Parcela", "Linha", "Posição", 
+      "CAP (cm)", "DAP (cm)", "Altura (m)", "Altura Dano (m)", 
+      "Relação H/D", "Código", "Status QA", "Mensagens"
+    ];
+
+    // Mapeia as linhas
+    const rows = planilhaFiltrada.map(row => [
+      row.fazenda,
+      row.talhao,
+      `P${row.parcela}`,
+      row.linha,
+      row.posicao,
+      row.cap.toFixed(1).replace(".", ","),
+      row.dap.toFixed(2).replace(".", ","),
+      row.altura.toFixed(1).replace(".", ","),
+      row.alturaDano.toFixed(1).replace(".", ","),
+      row.relacaoHD.toFixed(2).replace(".", ","),
+      row.codigo,
+      row.statusQA,
+      `"${row.mensagens.join(", ")}"`
+    ]);
+
+    // Monta o conteúdo final (Semicolon separado para Excel BR)
+    const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
+    
+    // Download
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `auditoria_projeto_${projId}_${new Date().toLocaleDateString("pt-BR").replaceAll("/", "-")}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -530,23 +574,33 @@ export default function CentralBI() {
             <div className="flex items-center gap-2">
               <TableIcon size={14} /> Planilha Mestre de Auditoria
             </div>
-            <button
-              onClick={() =>
-                setFiltrosAtivos({
-                  fazenda: [],
-                  talhao: [],
-                  parcela: [],
-                  cap: [],
-                  altura: [],
-                  alturaDano: [],
-                  codigo: [],
-                  statusQA: [],
-                })
-              }
-              className="text-red-500 hover:text-red-700 flex items-center gap-1 transition-all"
-            >
-              <Trash2 size={12} /> Limpar Filtros
-            </button>
+            
+            <div className="flex items-center gap-4">
+                <button
+                onClick={exportarCSV}
+                className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black"
+                >
+                <Download size={14} /> Exportar Planilha
+                </button>
+
+                <button
+                onClick={() =>
+                    setFiltrosAtivos({
+                    fazenda: [],
+                    talhao: [],
+                    parcela: [],
+                    cap: [],
+                    altura: [],
+                    alturaDano: [],
+                    codigo: [],
+                    statusQA: [],
+                    })
+                }
+                className="text-red-500 hover:text-red-700 flex items-center gap-1 transition-all"
+                >
+                <Trash2 size={12} /> Limpar Filtros
+                </button>
+            </div>
           </div>
 
           <div className="overflow-auto flex-1 scroll-smooth">
