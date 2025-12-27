@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { db, auth } from "../lib/firebase";
 import { 
   collection, 
@@ -9,7 +9,7 @@ import {
   setDoc, 
   updateDoc,
   deleteDoc,
-  where
+  where 
 } from "firebase/firestore";
 import { 
   Users, 
@@ -63,7 +63,7 @@ interface ProducaoItem {
   nomeLider: string;
   dataColeta?: string;
   status?: string;
-  alturaTotal?: number; // Para cubagem
+  alturaTotal?: number; 
 }
 
 export default function EquipesPage() {
@@ -95,7 +95,7 @@ export default function EquipesPage() {
           setDiarios(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as DiarioCampo)));
         });
 
-        // 3. Produção de Inventário
+        // 3. Produção de Inventário (Parcelas)
         const unsubColetas = onSnapshot(query(collection(db, `clientes/${uid}/dados_coleta`)), (snap) => {
             setColetas(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProducaoItem)));
         });
@@ -130,7 +130,8 @@ export default function EquipesPage() {
   };
 
   const buscarColunaFlexivel = (item: any, possiveisNomes: string[]) => {
-    const chaveEncontrada = Object.keys(item).find(key => 
+    const chavesDisponiveis = Object.keys(item);
+    const chaveEncontrada = chavesDisponiveis.find(key => 
       possiveisNomes.some(nomeAlvo => 
         key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(nomeAlvo.toLowerCase())
       )
@@ -141,12 +142,14 @@ export default function EquipesPage() {
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const bstr = event.target?.result;
       const wb = XLSX.read(bstr, { type: "binary" });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(ws);
+
       const formatado = data.map((item: any) => ({
         nome: String(buscarColunaFlexivel(item, ["nome"]) || "").trim(),
         cpf: String(buscarColunaFlexivel(item, ["cpf"]) || "").replace(/\D/g, ""), 
@@ -158,6 +161,7 @@ export default function EquipesPage() {
         horasExtras: 0,
         faltasNoMes: 0
       })).filter(c => c.nome !== "" && c.cpf !== "");
+
       setPreviaExcel(formatado);
     };
     reader.readAsBinaryString(file);
@@ -166,85 +170,101 @@ export default function EquipesPage() {
   const salvarImportacao = async () => {
     if (!previaExcel || !auth.currentUser) return;
     setLoading(true);
+    const uid = auth.currentUser.uid;
     try {
       for (const colab of previaExcel) {
-        await setDoc(doc(db, `clientes/${auth.currentUser.uid}/colaboradores`, colab.cpf), colab, { merge: true });
+        await setDoc(doc(db, `clientes/${uid}/colaboradores`, colab.cpf), colab, { merge: true });
       }
       setPreviaExcel(null);
-    } catch (error) { console.error(error); } finally { setLoading(false); }
+      alert("RH atualizado com sucesso!");
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const salvarEdicaoManual = async () => {
     if (!editando || !auth.currentUser) return;
-    await updateDoc(doc(db, `clientes/${auth.currentUser.uid}/colaboradores`, editando.cpf), { ...editando });
+    const uid = auth.currentUser.uid;
+    await updateDoc(doc(db, `clientes/${uid}/colaboradores`, editando.cpf), { ...editando });
     setEditando(null);
   };
 
   const excluirColaborador = async (cpf: string) => {
-    if (!confirm("Excluir permanentemente?") || !auth.currentUser) return;
+    if (!confirm("Remover permanentemente?") || !auth.currentUser) return;
     await deleteDoc(doc(db, `clientes/${auth.currentUser.uid}/colaboradores`, cpf));
     setEditando(null);
   };
 
-  // --- LÓGICA DE PRODUÇÃO POR COLABORADOR ---
+  // --- LÓGICA DE PRODUÇÃO E PRESENÇA ---
   const getStatsColaborador = (colab: Colaborador) => {
     const nomeBusca = colab.nome.toLowerCase().trim();
     
-    // Busca os diários do dia onde este colaborador estava presente (como líder ou equipe)
-    const diariosOndeEstava = diarios.filter(d => 
+    const diariosDoDia = diarios.filter(d => 
         d.dataRelatorio === dataFiltro && 
         (d.nomeLider.toLowerCase().includes(nomeBusca) || d.equipeNoCarro.toLowerCase().includes(nomeBusca))
     );
 
-    const presente = colab.statusManual === 'presente' || (colab.statusManual !== 'falta' && diariosOndeEstava.length > 0);
+    const presente = colab.statusManual === 'presente' || (colab.statusManual !== 'falta' && diariosDoDia.length > 0);
 
     let amostrasCount = 0;
     let cubagensCount = 0;
 
-    // A produção do ajudante é espelhada na do líder do carro dele
-    diariosOndeEstava.forEach(diario => {
-        const liderDoCarro = diario.nomeLider.toLowerCase().trim();
+    diariosDoDia.forEach(diario => {
+        const liderDoVeiculo = diario.nomeLider.toLowerCase().trim();
         
         amostrasCount += coletas.filter(c => 
-            c.nomeLider.toLowerCase().trim() === liderDoCarro && 
-            c.dataColeta?.split('T')[0] === dataFiltro &&
-            (c.status === 'concluida' || c.status === 'exportada')
+            c.nomeLider.toLowerCase().trim() === liderDoVeiculo && 
+            (c.status === 'concluida' || c.status === 'exportada') &&
+            c.dataColeta?.split('T')[0] === dataFiltro
         ).length;
 
         cubagensCount += cubagens.filter(cb => 
-            cb.nomeLider.toLowerCase().trim() === liderDoCarro && 
-            (cb.dataColeta || '').split('T')[0] === dataFiltro &&
-            (cb.alturaTotal || 0) > 0
+            cb.nomeLider.toLowerCase().trim() === liderDoVeiculo && 
+            (cb.alturaTotal || 0) > 0 &&
+            (cb.dataColeta || '').split('T')[0] === dataFiltro
         ).length;
     });
 
     return { presente, amostrasCount, cubagensCount };
   };
 
-  const colaboradoresFiltrados = colaboradores.filter(c => 
-    c.nome.toLowerCase().includes(termoBusca.toLowerCase()) || c.cpf.includes(termoBusca)
-  );
+  const formatarDataBR = (dataStr: string) => {
+    if (!dataStr) return "-";
+    const partes = dataStr.split('-');
+    if (partes.length < 3) return dataStr;
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  };
+
+  // --- RESOLUÇÃO DO ERRO TS (DEFININDO A VARIÁVEL DE FILTRO) ---
+  const colaboradoresFiltrados = useMemo(() => {
+    return colaboradores.filter(c => 
+      c.nome.toLowerCase().includes(termoBusca.toLowerCase()) || 
+      c.cpf.includes(termoBusca)
+    );
+  }, [colaboradores, termoBusca]);
 
   if (loading) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50">
       <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-emerald-500 mb-4"></div>
-      <p className="text-slate-400 font-black text-[10px] tracking-widest">SINCRONIZANDO PRODUÇÃO...</p>
+      <p className="text-slate-400 font-black text-[10px] tracking-widest uppercase">Processando Dados Operacionais...</p>
     </div>
   );
 
   return (
     <div className="p-8 max-w-7xl mx-auto bg-slate-50 min-h-screen font-sans">
       
-      {/* HEADER */}
+      {/* HEADER PRINCIPAL */}
       <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
           <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">Equipes & Produção</h1>
-          <p className="text-slate-500 font-medium">Controle operacional e financeiro integrado ao campo.</p>
+          <p className="text-slate-500 font-medium italic">Gestão administrativa e produtividade sincronizada.</p>
         </div>
         <div className="flex gap-3">
           <input type="file" ref={fileInputRef} onChange={handleImportExcel} className="hidden" accept=".xlsx, .xls" />
           <button onClick={() => fileInputRef.current?.click()} className="bg-white border-2 border-slate-200 text-slate-700 px-6 py-3 rounded-2xl font-black text-xs uppercase hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm">
-            <FileSpreadsheet size={16} className="text-emerald-600" /> Sincronizar Excel
+            <FileSpreadsheet size={16} className="text-emerald-600" /> Importar Excel
           </button>
         </div>
       </header>
@@ -253,7 +273,7 @@ export default function EquipesPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
         <div className="bg-slate-900 p-6 rounded-[32px] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
             <TrendingUp className="absolute -right-4 -bottom-4 text-emerald-500/10" size={120} />
-            <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Amostras do Dia</p>
+            <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest">Amostras (Dia)</p>
             <h2 className="text-5xl font-black mt-2">
                 {coletas.filter(c => c.dataColeta?.split('T')[0] === dataFiltro && (c.status === 'concluida' || c.status === 'exportada')).length}
             </h2>
@@ -273,7 +293,7 @@ export default function EquipesPage() {
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col justify-between">
             <div className="bg-emerald-50 text-emerald-600 p-2 rounded-xl w-fit"><UserCheck size={20}/></div>
             <div>
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Colaboradores Ativos</p>
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Equipe em Campo</p>
                 <h2 className="text-3xl font-black text-slate-900">
                     {colaboradores.filter(c => getStatsColaborador(c).presente).length}
                 </h2>
@@ -283,8 +303,8 @@ export default function EquipesPage() {
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col justify-between">
             <div className="bg-red-50 text-red-600 p-2 rounded-xl w-fit"><AlertTriangle size={20}/></div>
             <div>
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Faltas no Dia</p>
-                <h2 className="text-3xl font-black text-slate-900">
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Faltas / Ausências</p>
+                <h2 className="text-3xl font-black text-red-500">
                     {colaboradores.length - colaboradores.filter(c => getStatsColaborador(c).presente).length}
                 </h2>
             </div>
@@ -295,22 +315,32 @@ export default function EquipesPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="md:col-span-2 relative">
           <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input type="text" placeholder="Filtrar por nome ou CPF..." className="w-full pl-14 pr-6 py-5 rounded-[24px] bg-white border border-slate-200 focus:border-emerald-500 outline-none shadow-sm transition-all text-sm font-medium" onChange={(e) => setTermoBusca(e.target.value)} />
+          <input 
+            type="text" 
+            placeholder="Localizar por Nome ou CPF..." 
+            className="w-full pl-14 pr-6 py-5 rounded-[24px] bg-white border border-slate-200 focus:border-emerald-500 outline-none shadow-sm transition-all text-sm font-medium" 
+            onChange={(e) => setTermoBusca(e.target.value)} 
+          />
         </div>
         <div className="bg-slate-900 text-white rounded-[24px] flex items-center px-6 gap-4 border border-emerald-500/20">
           <CalendarDays className="text-emerald-400" size={20} />
           <div className="flex flex-col">
-            <span className="text-[8px] font-black uppercase text-slate-400">Analisar Data:</span>
-            <input type="date" value={dataFiltro} onChange={(e) => setDataFiltro(e.target.value)} className="bg-transparent border-none outline-none font-bold text-sm text-white cursor-pointer" />
+            <span className="text-[8px] font-black uppercase text-slate-400">Data de Referência:</span>
+            <input 
+              type="date" 
+              value={dataFiltro} 
+              onChange={(e) => setDataFiltro(e.target.value)} 
+              className="bg-transparent border-none outline-none font-bold text-sm text-white cursor-pointer" 
+            />
           </div>
         </div>
       </div>
 
-      {/* TABELA DE GESTÃO E RH */}
+      {/* TABELA RH E GESTÃO */}
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-2xl overflow-hidden mb-10">
         <div className="p-8 bg-slate-50 border-b flex justify-between items-center">
-            <h3 className="font-black text-slate-700 uppercase text-xs tracking-widest">Relatório de Equipe e Produção</h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase">Data: {new Date(dataFiltro).toLocaleDateString('pt-BR')}</span>
+            <h3 className="font-black text-slate-700 uppercase text-xs tracking-widest">Relatório Analítico de Pessoal</h3>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Período: {formatarDataBR(dataFiltro)}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -318,14 +348,14 @@ export default function EquipesPage() {
               <tr className="text-[10px] font-black uppercase text-slate-400 tracking-widest bg-white border-b border-slate-100">
                 <th className="p-8">Colaborador / Cargo</th>
                 <th className="p-8 text-center">Status</th>
-                <th className="p-8 text-center bg-slate-50/50">Produção Indiv.</th>
+                <th className="p-8 text-center bg-slate-50/30">Produção (Dia)</th>
                 <th className="p-8 text-center">Horas Extras</th>
-                <th className="p-8 text-right">Valor Diária</th>
-                <th className="p-8 text-right">Gerenciar</th>
+                <th className="p-8 text-right">Diária</th>
+                <th className="p-8 text-right">Ajustar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {colaboradoresFiltrados.map((c) => {
+              {colaboradoresFiltrados.map((c: Colaborador) => {
                 const stats = getStatsColaborador(c);
                 const isDemitido = c.dataDemissao && new Date(c.dataDemissao) <= new Date();
                 
@@ -335,12 +365,13 @@ export default function EquipesPage() {
                       <div className="flex flex-col">
                         <span className="text-sm font-black text-slate-800 uppercase tracking-tight">{c.nome}</span>
                         <span className="text-[10px] text-slate-400 font-bold uppercase">{c.cargo} • CPF: {c.cpf}</span>
+                        <span className="text-[9px] text-slate-400 font-medium">Contrato: {formatarDataBR(c.dataAdmissao)}</span>
                       </div>
                     </td>
                     
                     <td className="p-8 text-center">
                       {isDemitido ? (
-                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase"><UserMinus size={12}/> Inativo</span>
+                        <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase"><UserMinus size={12}/> Desligado</span>
                       ) : stats.presente ? (
                         <div className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full border border-emerald-100">
                           <CheckCircle2 size={12} />
@@ -354,7 +385,7 @@ export default function EquipesPage() {
                       )}
                     </td>
 
-                    <td className="p-8 text-center bg-slate-50/30">
+                    <td className="p-8 text-center bg-slate-50/20">
                         <div className="flex flex-col gap-1 items-center">
                             <span className="text-xs font-black text-slate-700">{stats.amostrasCount} Amostras</span>
                             <span className="text-[9px] font-bold text-blue-500 uppercase">{stats.cubagensCount} Cubagens</span>
@@ -377,7 +408,7 @@ export default function EquipesPage() {
         </div>
       </div>
 
-      {/* MODAL DE EDIÇÃO RH (MANUAL) */}
+      {/* MODAL DE EDIÇÃO MANUAL */}
       {editando && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col border border-emerald-500/20">
@@ -386,7 +417,7 @@ export default function EquipesPage() {
                 <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Ajuste de Cadastro</h2>
                 <p className="text-slate-500 text-sm font-bold">{editando.nome}</p>
               </div>
-              <button onClick={() => setEditando(null)} className="bg-white p-2 rounded-full shadow-sm"><X /></button>
+              <button onClick={() => setEditando(null)} className="bg-white p-2 rounded-full shadow-sm hover:text-red-500 transition-all"><X /></button>
             </div>
             
             <div className="p-10 space-y-6">
@@ -417,7 +448,7 @@ export default function EquipesPage() {
                 <div className="flex gap-2">
                   <button onClick={() => setEditando({...editando, statusManual: 'presente'})} className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase border transition-all ${editando.statusManual === 'presente' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-400 border-slate-200'}`}>Presença</button>
                   <button onClick={() => setEditando({...editando, statusManual: 'falta'})} className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase border transition-all ${editando.statusManual === 'falta' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-slate-400 border-slate-200'}`}>Falta</button>
-                  <button onClick={() => setEditando({...editando, statusManual: null})} className="p-4 rounded-2xl border border-slate-200 text-slate-300 hover:bg-slate-50"><Trash2 size={20}/></button>
+                  <button onClick={() => setEditando({...editando, statusManual: null})} className="p-4 rounded-2xl border border-slate-200 text-slate-300 hover:bg-red-50 hover:text-red-500 transition-all"><Trash2 size={20}/></button>
                 </div>
               </div>
             </div>
@@ -437,7 +468,7 @@ export default function EquipesPage() {
             <div className="p-10 border-b flex justify-between items-center bg-emerald-50">
               <div>
                 <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tighter">Confirmar Importação</h2>
-                <p className="text-emerald-700 text-sm font-bold">Verificamos {previaExcel.length} colaboradores com dados de contrato.</p>
+                <p className="text-emerald-700 text-sm font-bold">Processamos {previaExcel.length} registros com sucesso.</p>
               </div>
               <button onClick={() => setPreviaExcel(null)} className="text-slate-400 hover:text-red-500 transition-colors"><XCircle size={32}/></button>
             </div>
@@ -460,7 +491,7 @@ export default function EquipesPage() {
                       <td className="py-4 font-bold text-slate-800">{c.nome}</td>
                       <td className="py-4 text-slate-500">{c.cpf}</td>
                       <td className="py-4 text-slate-400 uppercase font-black text-[9px]">{c.cargo}</td>
-                      <td className="py-4 text-slate-600">{c.dataAdmissao ? new Date(c.dataAdmissao).toLocaleDateString('pt-BR') : '-'}</td>
+                      <td className="py-4 text-slate-600">{formatarDataBR(c.dataAdmissao)}</td>
                       <td className="py-4 text-right font-medium">R$ {c.valorDiaria.toFixed(2)}</td>
                       <td className="py-4 text-right font-black">R$ {c.salarioBase.toFixed(2)}</td>
                     </tr>
@@ -470,9 +501,9 @@ export default function EquipesPage() {
             </div>
 
             <div className="p-10 border-t bg-slate-50 flex justify-end gap-4">
-               <button onClick={() => setPreviaExcel(null)} className="px-8 py-3 rounded-2xl font-bold text-slate-500">Descartar</button>
-               <button onClick={salvarImportacao} className="bg-emerald-600 text-white px-10 py-4 rounded-[20px] font-black uppercase text-xs tracking-widest hover:bg-emerald-700 shadow-lg flex items-center gap-2">
-                 <Save size={18}/> Confirmar no Sistema
+               <button onClick={() => setPreviaExcel(null)} className="px-8 py-3 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 transition-all">Descartar</button>
+               <button onClick={salvarImportacao} className="bg-emerald-600 text-white px-10 py-4 rounded-[20px] font-black uppercase text-xs tracking-widest hover:bg-emerald-700 shadow-lg flex items-center gap-2 transition-all">
+                 <Save size={18}/> Salvar no Firebase
                </button>
             </div>
           </div>
@@ -480,13 +511,13 @@ export default function EquipesPage() {
       )}
 
       {/* RODAPÉ INFORMATIVO */}
-      <div className="mt-8 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex gap-4 items-center">
+      <div className="mt-8 p-6 bg-amber-50 rounded-3xl border border-amber-100 flex gap-4 items-center shadow-inner">
           <div className="bg-amber-100 p-3 rounded-2xl text-amber-600">
             <BadgeDollarSign size={24} />
           </div>
           <div>
-            <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Cálculo de Produção</p>
-            <p className="text-[11px] text-amber-700">A produção individual é calculada baseada na equipe vinculada ao líder no <b>Diário de Campo</b>. Ajudantes recebem a produção total do veículo do dia.</p>
+            <p className="text-xs font-black text-amber-800 uppercase tracking-widest">Metodologia de Produção</p>
+            <p className="text-[11px] text-amber-700">O sistema cruza o <b>Diário de Campo</b> com as coletas concluídas para atribuir a produção a todos os ocupantes do veículo naquela data.</p>
           </div>
       </div>
     </div>
