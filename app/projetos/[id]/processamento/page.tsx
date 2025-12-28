@@ -300,7 +300,7 @@ export default function ProcessamentoDendrometrico() {
                                {COLORS.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                             </Pie>
                             <Tooltip />
-                            <Legend verticalAlign="bottom" height={36}/>
+                            <Legend verticalAlign="bottom" height={37}/>
                          </PieChart>
                       </ResponsiveContainer>
                    </div>
