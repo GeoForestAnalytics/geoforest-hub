@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { db, auth } from "@/app/lib/firebase";
 import {
@@ -10,6 +10,8 @@ import {
   getDocs,
   doc,
   updateDoc,
+  DocumentData,
+  QuerySnapshot,
 } from "firebase/firestore";
 import {
   ScatterChart,
@@ -25,14 +27,13 @@ import {
   ArrowLeft,
   Table as TableIcon,
   BarChart2,
-  Filter,
   CheckCircle,
-  AlertCircle,
   ChevronLeft,
   ChevronRight,
   ListFilter,
   Trash2,
   Download,
+  Layers,
 } from "lucide-react";
 
 interface ArvoreAuditada {
@@ -58,92 +59,99 @@ export default function CentralBI() {
   const router = useRouter();
   const projId = params.id as string;
 
-  // Estados de Interface
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [editando, setEditando] = useState<{ idx: number; campo: string } | null>(null);
 
-  // Estados de Dados
+  const [atividades, setAtividades] = useState<any[]>([]);
   const [fazendas, setFazendas] = useState<any[]>([]);
   const [talhoes, setTalhoes] = useState<any[]>([]);
+  
+  const [atividadeSel, setAtividadeSel] = useState<string>(""); 
   const [fazendasSel, setFazendasSel] = useState<string[]>([]);
   const [talhoesSel, setTalhoesSel] = useState<string[]>([]);
+  
   const [planilhaCompleta, setPlanilhaCompleta] = useState<ArvoreAuditada[]>([]);
 
-  // Filtros de Tabela
   const [filtrosAtivos, setFiltrosAtivos] = useState<{ [key: string]: string[] }>({
-    fazenda: [],
-    talhao: [],
-    parcela: [],
-    cap: [],
-    altura: [],
-    alturaDano: [],
-    codigo: [],
-    statusQA: [],
+    fazenda: [], talhao: [], parcela: [], cap: [], altura: [], alturaDano: [], codigo: [], statusQA: [],
   });
   const [menuFiltroAberto, setMenuFiltroAberto] = useState<string | null>(null);
 
-  // Carregamento Inicial
   useEffect(() => {
     const carregarEstrutura = async () => {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
       try {
+        const qAtiv = query(collection(db, `clientes/${uid}/atividades`), where("projetoId", "in", [projId, Number(projId)]));
+        const ativSnap = await getDocs(qAtiv);
+        const listaAtiv = ativSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter((a: any) => !a.tipo?.toUpperCase().includes("CUB"));
+        setAtividades(listaAtiv);
+
         const fSnap = await getDocs(collection(db, `clientes/${uid}/fazendas`));
         const tSnap = await getDocs(collection(db, `clientes/${uid}/talhoes`));
         setFazendas(fSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setTalhoes(tSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        console.error(e);
-      }
+      } catch (e) { console.error(e); }
     };
+    auth.onAuthStateChanged((user) => { if (user) carregarEstrutura(); else router.push("/login"); });
+  }, [projId, router]);
 
-    auth.onAuthStateChanged((user) => {
-      if (user) carregarEstrutura();
-      else router.push("/login");
-    });
-  }, [router]);
+  const fazendasFiltradas = useMemo(() => {
+    if (!atividadeSel) return [];
+    return fazendas.filter(f => String(f.atividadeId) === atividadeSel);
+  }, [fazendas, atividadeSel]);
 
-  // Lógica de Filtros
-  const toggleFiltroValue = (coluna: string, valor: string) => {
-    setFiltrosAtivos((prev) => {
-      const atuais = prev[coluna] || [];
-      const novos = atuais.includes(valor)
-        ? atuais.filter((v) => v !== valor)
-        : [...atuais, valor];
-      return { ...prev, [coluna]: novos };
-    });
+  const talhoesFiltrados = useMemo(() => {
+    if (fazendasSel.length === 0) return [];
+    return talhoes.filter(t => fazendasSel.includes(String(t.fazendaId)) && String(t.fazendaAtividadeId) === atividadeSel);
+  }, [talhoes, fazendasSel, atividadeSel]);
+
+  const handleToggleAllFazendas = () => {
+    if (fazendasSel.length === fazendasFiltradas.length) { setFazendasSel([]); setTalhoesSel([]); }
+    else { setFazendasSel(fazendasFiltradas.map(f => f.id)); }
   };
 
-  // Função Principal de Auditoria
+  const handleToggleAllTalhoes = () => {
+    if (talhoesSel.length === talhoesFiltrados.length) { setTalhoesSel([]); }
+    else { setTalhoesSel(talhoesFiltrados.map(t => String(t.id))); }
+  };
+
+  // --- FUNÇÃO DE AUDITORIA COM CHUNKING (CORREÇÃO DO ERRO 30 VALORES) ---
   const rodarAuditoria = async () => {
-    if (fazendasSel.length === 0) return alert("Selecione ao menos uma fazenda.");
+    if (!atividadeSel) return alert("Selecione a Atividade de Inventário.");
+    if (talhoesSel.length === 0) return alert("Selecione os talhões.");
+    
     setLoading(true);
     try {
       const uid = auth.currentUser?.uid;
-      const qPar = query(
-        collection(db, `clientes/${uid}/dados_coleta`),
-        where("projetoId", "in", [projId, Number(projId)])
-      );
-      const pSnap = await getDocs(qPar);
+      const talhoesIdsNormalizados = talhoesSel.map(id => isNaN(Number(id)) ? id : Number(id));
 
-      const nomesFazendasFiltro = fazendas
-        .filter((f) => fazendasSel.includes(f.id))
-        .map((f) => f.nome.toLowerCase().trim());
+      // Fatiar a lista em pedaços de 30 para respeitar o limite do Firebase
+      const chunks = [];
+      for (let i = 0; i < talhoesIdsNormalizados.length; i += 30) {
+        chunks.push(talhoesIdsNormalizados.slice(i, i + 30));
+      }
 
-      const parcelasFiltradas = pSnap.docs.filter((d) => {
-        const data = d.data();
-        const fId = String(data.idFazenda || data.fazendaId || "").trim();
-        const fNome = String(data.nomeFazenda || "").toLowerCase().trim();
-        const tId = String(data.talhaoId || "");
-        return (
-          (fazendasSel.includes(fId) || nomesFazendasFiltro.includes(fNome)) &&
-          (talhoesSel.length === 0 || talhoesSel.includes(tId))
+      // Executar todas as consultas em paralelo
+      const queryPromises = chunks.map(chunk => {
+        const q = query(
+          collection(db, `clientes/${uid}/dados_coleta`),
+          where("talhaoId", "in", chunk)
         );
+        return getDocs(q);
       });
 
-      const promessas = parcelasFiltradas.map(async (pDoc) => {
+      const querySnapshots = await Promise.all(queryPromises);
+      
+      // Mesclar todos os documentos encontrados
+      const allDocs: any[] = [];
+      querySnapshots.forEach(snap => allDocs.push(...snap.docs));
+
+      const promessasArvores = allDocs.map(async (pDoc) => {
         const p = pDoc.data();
         let aSnap = await getDocs(collection(pDoc.ref, "arvores"));
         if (aSnap.empty) aSnap = await getDocs(collection(pDoc.ref, "arvore"));
@@ -158,18 +166,9 @@ export default function CentralBI() {
 
           let status: any = "OK";
           let msgs = [];
-          if (cap > 220 || (cap < 5 && cap > 0)) {
-            status = "ERRO";
-            msgs.push("Outlier CAP");
-          }
-          if (relacaoHD > 165) {
-            status = "ALERTA";
-            msgs.push("H/D Alto");
-          }
-          if (a.codigo === "Falha" || cap === 0) {
-            status = "ERRO";
-            msgs.push("Falha");
-          }
+          if (cap > 220 || (cap < 5 && cap > 0)) { status = "ERRO"; msgs.push("Outlier CAP"); }
+          if (relacaoHD > 165) { status = "ALERTA"; msgs.push("H/D Alto"); }
+          if (a.codigo === "Falha" || cap === 0) { status = "ERRO"; msgs.push("Falha"); }
 
           return {
             id: aDoc.id,
@@ -179,11 +178,7 @@ export default function CentralBI() {
             parcela: p.idParcela,
             linha: a.linha,
             posicao: a.posicaoNaLinha,
-            cap,
-            dap,
-            altura: alt,
-            alturaDano: altD,
-            relacaoHD,
+            cap, dap, altura: alt, alturaDano: altD, relacaoHD,
             codigo: a.codigo || "NORMAL",
             statusQA: status,
             mensagens: msgs,
@@ -191,22 +186,14 @@ export default function CentralBI() {
         });
       });
 
-      const resultados = await Promise.all(promessas);
-      setPlanilhaCompleta(
-        resultados
-          .flat()
-          .sort(
-            (a, b) =>
-              a.fazenda.localeCompare(b.fazenda) ||
-              Number(a.parcela) - Number(b.parcela)
-          )
-      );
-    } finally {
-      setLoading(false);
-    }
+      const resultados = await Promise.all(promessasArvores);
+      setPlanilhaCompleta(resultados.flat().sort((a, b) => a.fazenda.localeCompare(b.fazenda)));
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao processar auditoria.");
+    } finally { setLoading(false); }
   };
 
-  // Cálculo da Planilha Filtrada
   const planilhaFiltrada = useMemo(() => {
     return planilhaCompleta.filter((item) => {
       return Object.keys(filtrosAtivos).every((key) => {
@@ -217,349 +204,132 @@ export default function CentralBI() {
     });
   }, [planilhaCompleta, filtrosAtivos]);
 
-  // KPIs
-  const capMedio = useMemo(() => {
-    if (planilhaFiltrada.length === 0) return 0;
-    const soma = planilhaFiltrada.reduce((acc, item) => acc + item.cap, 0);
-    return soma / planilhaFiltrada.length;
-  }, [planilhaFiltrada]);
+  const capMedio = useMemo(() => planilhaFiltrada.length > 0 ? planilhaFiltrada.reduce((acc, item) => acc + item.cap, 0) / planilhaFiltrada.length : 0, [planilhaFiltrada]);
+  const areaBasalTotal = useMemo(() => planilhaFiltrada.reduce((acc, a) => acc + Math.PI * Math.pow(a.cap / Math.PI / 200, 2), 0), [planilhaFiltrada]);
 
-  const areaBasalTotal = useMemo(() => {
-    return planilhaFiltrada.reduce(
-      (acc, a) => acc + Math.PI * Math.pow(a.cap / Math.PI / 200, 2),
-      0
-    );
-  }, [planilhaFiltrada]);
-
-  // Navegação do Gráfico para a Tabela
   const handlePointDoubleClick = (data: any) => {
     if (!data || !data.id) return;
     setHighlightedId(data.id);
     const element = document.getElementById(`tree-row-${data.id}`);
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
-      setTimeout(() => setHighlightedId(null), 3000);
-    }
+    if (element) { element.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(() => setHighlightedId(null), 3000); }
   };
 
-  // Edição
   const salvarEdicaoRapida = async (index: number, campo: string, valor: string) => {
     const item = planilhaFiltrada[index];
     const uid = auth.currentUser?.uid;
     const novoValor = Number(valor.replace(",", "."));
     if (isNaN(novoValor)) return setEditando(null);
-
     try {
-      const docRef = doc(
-        db,
-        `clientes/${uid}/dados_coleta`,
-        item.parcelaDocId,
-        "arvores",
-        item.id
-      );
+      const docRef = doc(db, `clientes/${uid}/dados_coleta`, item.parcelaDocId, "arvores", item.id);
       await updateDoc(docRef, { [campo]: novoValor });
-      const novaPlanilha = planilhaCompleta.map((p) =>
-        p.id === item.id ? { ...p, [campo]: novoValor } : p
-      );
-      setPlanilhaCompleta(novaPlanilha);
+      setPlanilhaCompleta(prev => prev.map(p => p.id === item.id ? { ...p, [campo]: novoValor } : p));
       setEditando(null);
-    } catch (e) {
-      alert("Erro ao salvar.");
-    }
+    } catch (e) { alert("Erro ao salvar."); }
   };
 
-  // FUNÇÃO DE EXPORTAÇÃO CSV PARA EXCEL (Padrão BR)
   const exportarCSV = () => {
-    if (planilhaFiltrada.length === 0) return alert("Não há dados para exportar.");
-
-    // Cabeçalhos do CSV
-    const headers = [
-      "Fazenda", "Talhao", "Parcela", "Linha", "Posicao", 
-      "CAP_cm", "DAP_cm", "Altura_m", "Altura_Dano_m", 
-      "Relacao_HD", "Codigo", "Status_QA", "Mensagens"
-    ];
-
-    // Mapeia as linhas respeitando as edições feitas na tela
-    const rows = planilhaFiltrada.map(row => [
-      row.fazenda,
-      row.talhao,
-      `P${row.parcela}`,
-      row.linha,
-      row.posicao,
-      row.cap.toFixed(1).replace(".", ","),
-      row.dap.toFixed(2).replace(".", ","),
-      row.altura.toFixed(1).replace(".", ","),
-      row.alturaDano.toFixed(1).replace(".", ","),
-      row.relacaoHD.toFixed(2).replace(".", ","),
-      row.codigo,
-      row.statusQA,
-      `"${row.mensagens.join(", ")}"`
-    ]);
-
-    // Monta o conteúdo final com BOM (para abrir acentos no Excel BR) e separador ponto-e-vírgula
+    if (planilhaFiltrada.length === 0) return alert("Não há dados.");
+    const headers = ["Fazenda", "Talhao", "Parcela", "Linha", "Posicao", "CAP_cm", "DAP_cm", "Altura_m", "Codigo", "Status_QA"];
+    const rows = planilhaFiltrada.map(row => [row.fazenda, row.talhao, `P${row.parcela}`, row.linha, row.posicao, row.cap.toFixed(1).replace(".", ","), row.dap.toFixed(2).replace(".", ","), row.altura.toFixed(1).replace(".", ","), row.codigo, row.statusQA]);
     const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
-    
-    // Processo de Download do Browser
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `auditoria_projeto_${projId}_${new Date().toLocaleDateString("pt-BR").replaceAll("/", "-")}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
+    link.href = URL.createObjectURL(blob);
+    link.download = `auditoria_amostras_${projId}.csv`;
     link.click();
-    document.body.removeChild(link);
   };
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
-      {/* SIDEBAR RETRÁTIL */}
-      <aside
-        className={`${
-          sidebarOpen ? "w-80" : "w-0"
-        } bg-slate-900 text-white transition-all duration-300 relative flex flex-col shrink-0 overflow-hidden`}
-      >
+      <aside className={`${sidebarOpen ? "w-80" : "w-0"} bg-slate-900 text-white transition-all duration-300 relative flex flex-col shrink-0 overflow-hidden`}>
         <div className="p-6 flex flex-col gap-6 h-full min-w-[300px]">
           <div className="flex justify-between items-center border-b border-slate-800 pb-4">
-            <button
-              onClick={() => router.back()}
-              className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 hover:text-white"
-            >
-              <ArrowLeft size={12} /> Voltar
-            </button>
-            <button
-              onClick={() => setSidebarOpen(false)}
-              className="text-emerald-400 p-1 hover:bg-slate-800 rounded"
-            >
-              <ChevronLeft size={20} />
-            </button>
+            <button onClick={() => router.back()} className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1 hover:text-white"><ArrowLeft size={12} /> Voltar</button>
+            <button onClick={() => setSidebarOpen(false)} className="text-emerald-400 p-1 hover:bg-slate-800 rounded"><ChevronLeft size={20}/></button>
           </div>
 
-          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-            {/* Fazendas */}
-            <div className="flex flex-col h-1/2">
+          <div className="flex-1 flex flex-col gap-6 overflow-hidden">
+            <div>
+              <label className="text-[10px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2"><Layers size={12}/> 0. Tipo de Atividade</label>
+              <select 
+                value={atividadeSel}
+                onChange={(e) => { setAtividadeSel(e.target.value); setFazendasSel([]); setTalhoesSel([]); }}
+                className="w-full mt-2 bg-black/20 border border-slate-700 rounded-xl p-3 text-xs font-bold text-white outline-none focus:border-emerald-500 transition-all"
+              >
+                <option value="" className="bg-slate-900">Selecione o Inventário...</option>
+                {atividades.map(a => <option key={a.id} value={a.id} className="bg-slate-900">{a.tipo.toUpperCase()}</option>)}
+              </select>
+            </div>
+
+            <div className="flex flex-col h-1/3">
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase">
-                  1. Fazendas
-                </label>
-                <button
-                  onClick={() =>
-                    setFazendasSel(
-                      fazendasSel.length === fazendas.length
-                        ? []
-                        : fazendas.map((f) => f.id)
-                    )
-                  }
-                  className="text-[9px] font-bold text-emerald-500 uppercase hover:text-emerald-400"
-                >
-                  [ Todas ]
+                <label className="text-[10px] font-black text-slate-500 uppercase">1. Fazendas</label>
+                <button onClick={handleToggleAllFazendas} className="text-[9px] font-bold text-emerald-500 hover:text-emerald-400 uppercase tracking-tighter">
+                  {fazendasSel.length === fazendasFiltradas.length && fazendasFiltradas.length > 0 ? "[ Limpar ]" : "[ Todas ]"}
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto pr-2 border border-slate-800 p-2 rounded-xl bg-black/10 custom-scrollbar">
-                {fazendas.map((f, index) => (
-                  <label
-                    key={`${f.id}-${index}`}
-                    className="flex items-center gap-2 text-xs cursor-pointer hover:bg-slate-800 p-1.5 rounded transition-all"
-                  >
-                    <input
-                      type="checkbox"
-                      className="accent-emerald-500"
-                      checked={fazendasSel.includes(f.id)}
-                      onChange={(e) =>
-                        e.target.checked
-                          ? setFazendasSel([...fazendasSel, f.id])
-                          : setFazendasSel(fazendasSel.filter((id) => id !== f.id))
-                      }
-                    />
-                    <span
-                      className={
-                        fazendasSel.includes(f.id)
-                          ? "text-emerald-400 font-bold"
-                          : "text-slate-400"
-                      }
-                    >
-                      {f.nome}
-                    </span>
+              <div className="flex-1 overflow-y-auto mt-2 border border-slate-800 p-2 rounded-xl bg-black/10">
+                {fazendasFiltradas.map((f) => (
+                  <label key={f.id} className="flex items-center gap-2 text-xs p-1.5 hover:bg-slate-800 rounded cursor-pointer">
+                    <input type="checkbox" className="accent-emerald-500" checked={fazendasSel.includes(f.id)} onChange={(e) => e.target.checked ? setFazendasSel([...fazendasSel, f.id]) : setFazendasSel(fazendasSel.filter((id) => id !== f.id))} />
+                    <span className={fazendasSel.includes(f.id) ? "text-emerald-400 font-bold" : "text-slate-400"}>{f.nome}</span>
                   </label>
                 ))}
               </div>
             </div>
 
-            {/* Talhões */}
             <div className="flex flex-col flex-1 overflow-hidden">
               <div className="flex justify-between items-center mb-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase">
-                  2. Talhões
-                </label>
-                <button
-                  onClick={() =>
-                    setTalhoesSel(
-                      talhoes
-                        .filter((t) => fazendasSel.includes(String(t.fazendaId)))
-                        .map((t) => String(t.id))
-                    )
-                  }
-                  className="text-[9px] font-bold text-emerald-500 uppercase hover:text-emerald-400"
-                >
-                  [ Todas ]
+                <label className="text-[10px] font-black text-slate-500 uppercase">2. Talhões</label>
+                <button onClick={handleToggleAllTalhoes} className="text-[9px] font-bold text-emerald-500 hover:text-emerald-400 uppercase tracking-tighter">
+                  {talhoesSel.length === talhoesFiltrados.length && talhoesFiltrados.length > 0 ? "[ Limpar ]" : "[ Todas ]"}
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto pr-2 border border-slate-800 p-2 rounded-xl bg-black/10 custom-scrollbar">
-                {fazendasSel.length > 0 ? (
-                  talhoes
-                    .filter((t) => fazendasSel.includes(String(t.fazendaId)))
-                    .map((t, index) => (
-                      <label
-                        key={`${t.id}-${index}`}
-                        className="flex items-center gap-2 text-[10px] cursor-pointer hover:bg-slate-800 p-1 rounded transition-all"
-                      >
-                        <input
-                          type="checkbox"
-                          className="accent-emerald-500"
-                          checked={talhoesSel.includes(String(t.id))}
-                          onChange={(e) =>
-                            e.target.checked
-                              ? setTalhoesSel([...talhoesSel, String(t.id)])
-                              : setTalhoesSel(
-                                  talhoesSel.filter((id) => id !== String(t.id))
-                                )
-                          }
-                        />
-                        <span
-                          className={
-                            talhoesSel.includes(String(t.id))
-                              ? "text-white font-bold"
-                              : "text-slate-500"
-                          }
-                        >
-                          {t.nome}
-                        </span>
-                      </label>
-                    ))
-                ) : (
-                  <p className="text-[10px] text-slate-600 text-center mt-10 italic">
-                    Selecione uma fazenda.
-                  </p>
-                )}
+              <div className="flex-1 overflow-y-auto mt-2 border border-slate-800 p-2 rounded-xl bg-black/10">
+                {talhoesFiltrados.map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 text-[10px] p-1 hover:bg-slate-800 rounded cursor-pointer">
+                    <input type="checkbox" className="accent-emerald-500" checked={talhoesSel.includes(String(t.id))} onChange={(e) => e.target.checked ? setTalhoesSel([...talhoesSel, String(t.id)]) : setTalhoesSel(talhoesSel.filter((id) => id !== String(t.id)))} />
+                    <span className={talhoesSel.includes(String(t.id)) ? "text-white font-bold" : "text-slate-500"}>{t.nome}</span>
+                  </label>
+                ))}
               </div>
             </div>
           </div>
-          <button
-            onClick={rodarAuditoria}
-            className="bg-emerald-500 text-slate-900 py-4 rounded-2xl font-black text-sm uppercase shadow-lg hover:bg-emerald-400 transition-all"
-          >
-            Auditar Seleção
-          </button>
+          <button onClick={rodarAuditoria} className="bg-emerald-500 text-slate-900 py-4 rounded-2xl font-black text-sm uppercase shadow-lg hover:bg-emerald-400 transition-all">Auditar Amostras</button>
         </div>
       </aside>
 
       {!sidebarOpen && (
-        <button
-          onClick={() => setSidebarOpen(true)}
-          className="absolute left-4 top-4 z-50 bg-slate-900 text-emerald-400 p-3 rounded-2xl shadow-2xl border border-emerald-500/30"
-        >
-          <ChevronRight size={24} />
-        </button>
+        <button onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-50 bg-slate-900 text-emerald-400 p-3 rounded-2xl shadow-2xl border border-emerald-500/30"><ChevronRight size={24} /></button>
       )}
 
       <main className="flex-1 flex flex-col overflow-hidden p-6 gap-4 relative">
         {planilhaCompleta.length > 0 && (
           <div className="flex flex-col gap-4 shrink-0">
-            {/* BARRA DE KPIs COMPACTA */}
             <div className="bg-slate-900 p-4 rounded-2xl text-white shadow-xl flex flex-row items-center justify-between px-10 border border-emerald-500/10">
               <div className="flex items-center gap-8">
-                <div>
-                  <p className="text-emerald-400 text-[9px] font-black uppercase tracking-widest">
-                    Fustes
-                  </p>
-                  <h2 className="text-xl font-black">{planilhaFiltrada.length}</h2>
-                </div>
+                <div><p className="text-emerald-400 text-[9px] font-black uppercase tracking-widest">Fustes</p><h2 className="text-xl font-black">{planilhaFiltrada.length}</h2></div>
                 <div className="w-px h-8 bg-slate-800"></div>
-                <div>
-                  <p className="text-slate-500 text-[9px] font-bold uppercase">
-                    CAP Médio
-                  </p>
-                  <h2 className="text-lg font-bold">
-                    {capMedio.toFixed(1)} <span className="text-[10px]">cm</span>
-                  </h2>
-                </div>
+                <div><p className="text-slate-500 text-[9px] font-bold uppercase">CAP Médio</p><h2 className="text-lg font-bold">{capMedio.toFixed(1)} cm</h2></div>
                 <div className="w-px h-8 bg-slate-800"></div>
-                <div>
-                  <p className="text-red-400 text-[9px] font-bold uppercase">Erros QA</p>
-                  <h2 className="text-lg font-bold text-red-400">
-                    {planilhaFiltrada.filter((l) => l.statusQA !== "OK").length}
-                  </h2>
-                </div>
+                <div><p className="text-red-400 text-[9px] font-bold uppercase">Erros QA</p><h2 className="text-lg font-bold text-red-400">{planilhaFiltrada.filter((l) => l.statusQA !== "OK").length}</h2></div>
                 <div className="w-px h-8 bg-slate-800"></div>
-                <div>
-                  <p className="text-slate-500 text-[9px] font-bold uppercase">
-                    Área Basal (G)
-                  </p>
-                  <h2 className="text-lg font-bold text-emerald-400">
-                    {areaBasalTotal.toFixed(2)}
-                    <span className="text-[10px] ml-1">m²</span>
-                  </h2>
-                </div>
+                <div><p className="text-slate-500 text-[9px] font-bold uppercase">Área Basal (G)</p><h2 className="text-lg font-bold text-emerald-400">{areaBasalTotal.toFixed(2)}m²</h2></div>
               </div>
-
-              <div className="text-right border-l border-slate-800 pl-8">
-                <p className="text-slate-500 text-[9px] font-bold uppercase">
-                  Amostras Únicas
-                </p>
-                <p className="text-lg font-bold">
-                  {new Set(planilhaFiltrada.map((p) => p.parcela)).size}
-                </p>
-              </div>
+              <div className="text-right border-l border-slate-800 pl-8"><p className="text-slate-500 text-[9px] font-bold uppercase">Amostras Únicas</p><p className="text-lg font-bold">{new Set(planilhaFiltrada.map((p) => p.parcela)).size}</p></div>
             </div>
 
-            {/* GRÁFICO */}
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col overflow-hidden h-[350px]">
-              <h3 className="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-2">
-                <BarChart2 size={14} /> Dispersão H/D (Consolidado do Estrato)
-              </h3>
+              <h3 className="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-2"><BarChart2 size={14} /> Dispersão H/D</h3>
               <div className="flex-1 min-h-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      vertical={false}
-                      stroke="#f1f5f9"
-                    />
-                    <XAxis
-                      type="number"
-                      dataKey="cap"
-                      name="CAP"
-                      unit="cm"
-                      fontSize={10}
-                      tick={{ fill: "#94a3b8" }}
-                    />
-                    <YAxis
-                      type="number"
-                      dataKey="altura"
-                      name="Altura"
-                      unit="m"
-                      fontSize={10}
-                      tick={{ fill: "#94a3b8" }}
-                    />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis type="number" dataKey="cap" name="CAP" unit="cm" fontSize={10} />
+                    <YAxis type="number" dataKey="altura" name="Altura" unit="m" fontSize={10} />
                     <Tooltip cursor={{ strokeDasharray: "3 3" }} />
-                    <Scatter
-                      name="Árvores"
-                      data={planilhaFiltrada}
-                      onDoubleClick={(data) => handlePointDoubleClick(data)}
-                      className="cursor-pointer"
-                    >
-                      {planilhaFiltrada.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            entry.statusQA === "ERRO"
-                              ? "#ef4444"
-                              : entry.cap === 0
-                              ? "#94a3b8"
-                              : "#10b981"
-                          }
-                        />
-                      ))}
+                    <Scatter name="Árvores" data={planilhaFiltrada} onDoubleClick={(data) => handlePointDoubleClick(data)} className="cursor-pointer">
+                      {planilhaFiltrada.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.statusQA === "ERRO" ? "#ef4444" : entry.cap === 0 ? "#94a3b8" : "#10b981"} />)}
                     </Scatter>
                   </ScatterChart>
                 </ResponsiveContainer>
@@ -568,39 +338,12 @@ export default function CentralBI() {
           </div>
         )}
 
-        {/* PLANILHA MESTRE */}
         <div className="flex-1 bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col min-h-0">
           <div className="p-3 bg-slate-50 border-b flex justify-between items-center text-[10px] font-black uppercase text-slate-400 tracking-widest">
-            <div className="flex items-center gap-2">
-              <TableIcon size={14} /> Planilha Mestre de Auditoria
-            </div>
-            
+            <div className="flex items-center gap-2"><TableIcon size={14} /> Planilha Mestre</div>
             <div className="flex items-center gap-4">
-                {/* BOTÃO EXPORTAR CSV IMPLEMENTADO */}
-                <button
-                onClick={exportarCSV}
-                className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black"
-                >
-                <Download size={14} /> Exportar Planilha
-                </button>
-
-                <button
-                onClick={() =>
-                    setFiltrosAtivos({
-                    fazenda: [],
-                    talhao: [],
-                    parcela: [],
-                    cap: [],
-                    altura: [],
-                    alturaDano: [],
-                    codigo: [],
-                    statusQA: [],
-                    })
-                }
-                className="text-red-500 hover:text-red-700 flex items-center gap-1 transition-all"
-                >
-                <Trash2 size={12} /> Limpar Filtros
-                </button>
+                <button onClick={exportarCSV} className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 font-black"><Download size={14} /> Exportar</button>
+                <button onClick={() => setFiltrosAtivos({ fazenda: [], talhao: [], parcela: [], cap: [], altura: [], alturaDano: [], codigo: [], statusQA: [] })} className="text-red-500 hover:text-red-700 flex items-center gap-1"><Trash2 size={12} /> Limpar</button>
             </div>
           </div>
 
@@ -608,78 +351,19 @@ export default function CentralBI() {
             <table className="w-full text-left text-[11px] border-collapse relative">
               <thead className="sticky top-0 bg-white z-20 shadow-sm border-b">
                 <tr className="bg-slate-50/50">
-                  {[
-                    "fazenda",
-                    "talhao",
-                    "parcela",
-                    "cap",
-                    "altura",
-                    "alturaDano",
-                    "codigo",
-                    "statusQA",
-                  ].map((col) => (
-                    <th
-                      key={col}
-                      className="p-3 text-slate-400 font-black uppercase relative group border-r border-slate-100 last:border-r-0"
-                    >
+                  {["fazenda", "talhao", "parcela", "cap", "altura", "codigo", "statusQA"].map((col) => (
+                    <th key={col} className="p-3 text-slate-400 font-black uppercase relative border-r border-slate-100 last:border-r-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span>
-                          {col === "statusQA"
-                            ? "Diagnóstico"
-                            : col === "alturaDano"
-                            ? "Dano"
-                            : col}
-                        </span>
-                        <button
-                          onClick={() =>
-                            setMenuFiltroAberto(menuFiltroAberto === col ? null : col)
-                          }
-                          className={`p-1 rounded ${
-                            filtrosAtivos[col].length > 0
-                              ? "bg-emerald-500 text-white"
-                              : "hover:bg-slate-200"
-                          }`}
-                        >
-                          <ListFilter size={12} />
-                        </button>
+                        <span>{col === "statusQA" ? "Diagnóstico" : col}</span>
+                        <button onClick={() => setMenuFiltroAberto(menuFiltroAberto === col ? null : col)} className={`p-1 rounded ${filtrosAtivos[col].length > 0 ? "bg-emerald-500 text-white" : "hover:bg-slate-200"}`}><ListFilter size={12} /></button>
                       </div>
-
                       {menuFiltroAberto === col && (
                         <div className="absolute top-10 left-0 bg-white border border-slate-200 shadow-2xl rounded-xl p-3 w-48 z-30 normal-case font-normal text-slate-700">
-                          <p className="text-[9px] font-black uppercase mb-2 text-slate-400 border-b pb-1">
-                            Filtrar {col}
-                          </p>
                           <div className="max-h-40 overflow-y-auto space-y-1">
-                            {Array.from(
-                              new Set(
-                                planilhaCompleta.map((p) =>
-                                  String(p[col as keyof ArvoreAuditada])
-                                )
-                              )
-                            )
-                              .sort((a, b) =>
-                                a.localeCompare(b, undefined, { numeric: true })
-                              )
-                              .map((val) => (
-                                <label
-                                  key={val}
-                                  className="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer text-[10px]"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={filtrosAtivos[col].includes(val)}
-                                    onChange={() => toggleFiltroValue(col, val)}
-                                  />{" "}
-                                  {val}
-                                </label>
-                              ))}
+                            {Array.from(new Set(planilhaCompleta.map((p) => String(p[col as keyof ArvoreAuditada])))).sort().map((val) => (
+                              <label key={val} className="flex items-center gap-2 hover:bg-slate-50 p-1 rounded cursor-pointer text-[10px]"><input type="checkbox" checked={filtrosAtivos[col].includes(val)} onChange={() => setFiltrosAtivos(prev => ({ ...prev, [col]: prev[col].includes(val) ? prev[col].filter(v => v !== val) : [...prev[col], val] }))} /> {val}</label>
+                            ))}
                           </div>
-                          <button
-                            onClick={() => setMenuFiltroAberto(null)}
-                            className="w-full mt-3 py-1 bg-slate-900 text-white text-[9px] rounded font-bold uppercase"
-                          >
-                            Fechar
-                          </button>
                         </div>
                       )}
                     </th>
@@ -688,91 +372,18 @@ export default function CentralBI() {
               </thead>
               <tbody>
                 {planilhaFiltrada.map((l, i) => (
-                  <tr
-                    key={i}
-                    id={`tree-row-${l.id}`}
-                    className={`border-b border-slate-50 transition-all duration-700 ${
-                      highlightedId === l.id
-                        ? "bg-yellow-50 ring-1 ring-yellow-400 z-10"
-                        : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <td className="p-3 font-black text-slate-700 text-[10px] uppercase">
-                      {l.fazenda}
-                    </td>
+                  <tr key={i} id={`tree-row-${l.id}`} className={`border-b border-slate-50 transition-all duration-700 ${highlightedId === l.id ? "bg-yellow-50 ring-1 ring-yellow-400 z-10" : "hover:bg-slate-50"}`}>
+                    <td className="p-3 font-black text-slate-700 text-[10px] uppercase">{l.fazenda}</td>
                     <td className="p-3 text-slate-500 font-bold italic">{l.talhao}</td>
-                    <td className="p-3 text-center font-bold text-slate-400">
-                      P{l.parcela}{" "}
-                      <span className="block text-[8px] font-normal">
-                        {l.linha}/{l.posicao}
-                      </span>
+                    <td className="p-3 text-center font-bold text-slate-400">P{l.parcela} <span className="block text-[8px] font-normal">{l.linha}/{l.posicao}</span></td>
+                    <td className={`p-3 text-center cursor-pointer font-black text-sm ${l.cap === 0 ? "text-red-400 bg-red-50/50" : "text-slate-900"}`} onDoubleClick={() => setEditando({ idx: i, campo: "cap" })}>
+                      {editando?.idx === i && editando.campo === "cap" ? <input autoFocus className="w-16 border-2 border-emerald-500 rounded p-1 text-center" defaultValue={l.cap} onBlur={(e) => salvarEdicaoRapida(i, "cap", e.target.value)} /> : l.cap.toFixed(1)}
                     </td>
-                    <td
-                      className={`p-3 text-center cursor-pointer font-black text-sm ${
-                        l.cap === 0 ? "text-red-400 bg-red-50/50" : "text-slate-900"
-                      }`}
-                      onDoubleClick={() => setEditando({ idx: i, campo: "cap" })}
-                    >
-                      {editando?.idx === i && editando.campo === "cap" ? (
-                        <input
-                          autoFocus
-                          className="w-16 border-2 border-emerald-500 rounded p-1 text-center"
-                          defaultValue={l.cap}
-                          onBlur={(e) => salvarEdicaoRapida(i, "cap", e.target.value)}
-                        />
-                      ) : (
-                        l.cap.toFixed(1)
-                      )}
+                    <td className="p-3 text-center cursor-pointer font-bold text-slate-600" onDoubleClick={() => setEditando({ idx: i, campo: "altura" })}>
+                      {editando?.idx === i && editando.campo === "altura" ? <input autoFocus className="w-16 border-2 border-blue-500 rounded p-1 text-center" defaultValue={l.altura} onBlur={(e) => salvarEdicaoRapida(i, "altura", e.target.value)} /> : l.altura > 0 ? l.altura.toFixed(1) : "-"}
                     </td>
-                    <td
-                      className="p-3 text-center cursor-pointer font-bold text-slate-600"
-                      onDoubleClick={() => setEditando({ idx: i, campo: "altura" })}
-                    >
-                      {editando?.idx === i && editando.campo === "altura" ? (
-                        <input
-                          autoFocus
-                          className="w-16 border-2 border-blue-500 rounded p-1 text-center"
-                          defaultValue={l.altura}
-                          onBlur={(e) => salvarEdicaoRapida(i, "altura", e.target.value)}
-                        />
-                      ) : l.altura > 0 ? (
-                        l.altura.toFixed(1)
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="p-3 text-center text-slate-400 font-bold">
-                      {l.alturaDano > 0 ? l.alturaDano.toFixed(1) : "-"}
-                    </td>
-                    <td className="p-3 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
-                          l.codigo !== "NORMAL"
-                            ? "bg-amber-100 text-amber-700"
-                            : "text-slate-400"
-                        }`}
-                      >
-                        {l.codigo}
-                      </span>
-                    </td>
-                    <td className="p-3">
-                      {l.statusQA === "OK" ? (
-                        <span className="text-emerald-500 flex items-center gap-1 font-bold text-[9px] uppercase">
-                          <CheckCircle size={10} /> Consistente
-                        </span>
-                      ) : (
-                        <div className="flex gap-1 flex-wrap">
-                          {l.mensagens.map((m, idx) => (
-                            <span
-                              key={idx}
-                              className="bg-red-50 text-red-600 px-2 py-0.5 rounded border border-red-100 text-[9px] font-black uppercase flex items-center gap-1"
-                            >
-                              {m}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </td>
+                    <td className="p-3 text-center"><span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${l.codigo !== "NORMAL" ? "bg-amber-100 text-amber-700" : "text-slate-400"}`}>{l.codigo}</span></td>
+                    <td className="p-3">{l.statusQA === "OK" ? <span className="text-emerald-500 flex items-center gap-1 font-bold text-[9px] uppercase"><CheckCircle size={10} /> Consistente</span> : <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded border border-red-100 text-[9px] font-black uppercase">{l.mensagens[0]}</span>}</td>
                   </tr>
                 ))}
               </tbody>
