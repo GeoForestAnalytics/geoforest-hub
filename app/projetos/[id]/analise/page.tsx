@@ -268,18 +268,18 @@ export default function CentralBI() {
     }
   };
 
-  // FUNÇÃO DE EXPORTAÇÃO CSV
+  // FUNÇÃO DE EXPORTAÇÃO CSV PARA EXCEL (Padrão BR)
   const exportarCSV = () => {
     if (planilhaFiltrada.length === 0) return alert("Não há dados para exportar.");
 
     // Cabeçalhos do CSV
     const headers = [
-      "Fazenda", "Talhão", "Parcela", "Linha", "Posição", 
-      "CAP (cm)", "DAP (cm)", "Altura (m)", "Altura Dano (m)", 
-      "Relação H/D", "Código", "Status QA", "Mensagens"
+      "Fazenda", "Talhao", "Parcela", "Linha", "Posicao", 
+      "CAP_cm", "DAP_cm", "Altura_m", "Altura_Dano_m", 
+      "Relacao_HD", "Codigo", "Status_QA", "Mensagens"
     ];
 
-    // Mapeia as linhas
+    // Mapeia as linhas respeitando as edições feitas na tela
     const rows = planilhaFiltrada.map(row => [
       row.fazenda,
       row.talhao,
@@ -296,10 +296,10 @@ export default function CentralBI() {
       `"${row.mensagens.join(", ")}"`
     ]);
 
-    // Monta o conteúdo final (Semicolon separado para Excel BR)
+    // Monta o conteúdo final com BOM (para abrir acentos no Excel BR) e separador ponto-e-vírgula
     const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
     
-    // Download
+    // Processo de Download do Browser
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -576,6 +576,7 @@ export default function CentralBI() {
             </div>
             
             <div className="flex items-center gap-4">
+                {/* BOTÃO EXPORTAR CSV IMPLEMENTADO */}
                 <button
                 onClick={exportarCSV}
                 className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black"

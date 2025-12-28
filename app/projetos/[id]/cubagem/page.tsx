@@ -14,7 +14,8 @@ import {
   GripVertical, 
   TreeDeciduous, 
   Info,
-  Download 
+  Download,
+  Tag
 } from "lucide-react";
 
 interface Secao {
@@ -48,6 +49,7 @@ export default function AuditoriaCubagem() {
   const [statusMsg, setStatusMsg] = useState("");
 
   // --- DADOS ---
+  const [atividades, setAtividades] = useState<any[]>([]); 
   const [fazendas, setFazendas] = useState<any[]>([]);
   const [talhoes, setTalhoes] = useState<any[]>([]);
   const [fazendasSel, setFazendasSel] = useState<string[]>([]);
@@ -55,17 +57,43 @@ export default function AuditoriaCubagem() {
   const [listaCubagem, setListaCubagem] = useState<CubagemAuditada[]>([]);
   const [arvoreSelecionada, setArvoreSelecionada] = useState<CubagemAuditada | null>(null);
 
+  // Carregamento Inicial com Filtro de Atividade (Eliminando IPC/IFC)
   useEffect(() => {
-    const carregarEstrutura = async () => {
+    const carregarEstruturaFiltrada = async () => {
       const uid = auth.currentUser?.uid;
       if (!uid) return;
-      const fSnap = await getDocs(collection(db, `clientes/${uid}/fazendas`));
-      const tSnap = await getDocs(collection(db, `clientes/${uid}/talhoes`));
-      setFazendas(fSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTalhoes(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      
+      try {
+        // 1. Busca Atividades deste projeto e filtra apenas as de Cubagem (CUB)
+        const aSnap = await getDocs(query(collection(db, `clientes/${uid}/atividades`), where("projetoId", "in", [projId, Number(projId)])));
+        const atividadesCub = aSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((a: any) => a.tipo?.toUpperCase().includes("CUB"));
+        
+        const idsAtividadesCub = atividadesCub.map(a => String(a.id));
+
+        // 2. Busca todas as Fazendas e filtra apenas as que pertencem às atividades de Cubagem
+        const fSnap = await getDocs(collection(db, `clientes/${uid}/fazendas`));
+        const fazendasFiltradas = fSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((f: any) => idsAtividadesCub.includes(String(f.atividadeId)));
+
+        // 3. Busca todos os Talhões e filtra apenas os que pertencem às fazendas de Cubagem
+        const tSnap = await getDocs(collection(db, `clientes/${uid}/talhoes`));
+        const idsFazendasValidas = fazendasFiltradas.map(f => f.id);
+        const talhoesFiltrados = tSnap.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter((t: any) => idsFazendasValidas.includes(String(t.fazendaId)));
+
+        setAtividades(atividadesCub);
+        setFazendas(fazendasFiltradas);
+        setTalhoes(talhoesFiltrados);
+      } catch (e) {
+        console.error("Erro ao carregar estrutura de cubagem:", e);
+      }
     };
-    auth.onAuthStateChanged(user => { if(user) carregarEstrutura(); });
-  }, []);
+    auth.onAuthStateChanged(user => { if(user) carregarEstruturaFiltrada(); });
+  }, [projId]);
 
   // --- LÓGICA DE REDIMENSIONAR SIDEBAR ---
   const startResizing = useCallback(() => { isResizing.current = true; document.body.style.cursor = 'col-resize'; }, []);
@@ -82,15 +110,20 @@ export default function AuditoriaCubagem() {
   }, [resizeHandler, stopResizing]);
 
   const rodarAuditoriaCubagem = async () => {
-    if (fazendasSel.length === 0) return alert("Selecione uma fazenda.");
+    if (fazendasSel.length === 0) return alert("Selecione ao menos uma fazenda.");
+    if (talhoesSel.length === 0) return alert("Selecione ao menos um talhão.");
+    
     setLoading(true);
     setStatusMsg("Processando afilamento...");
     const uid = auth.currentUser?.uid;
 
     try {
+      // Correção da Linha 78: Convertendo IDs para Numbers e tratando tipagem para o Firestore
+      const idsNumericos = talhoesSel.map(id => Number(id));
+      
       const qCub = query(
         collection(db, `clientes/${uid}/dados_cubagem`), 
-        where("talhaoId", "in", talhoesSel.map(Number))
+        where("talhaoId", "in", idsNumericos)
       );
       const cubSnap = await getDocs(qCub);
 
@@ -98,7 +131,7 @@ export default function AuditoriaCubagem() {
 
       for (const cDoc of cubSnap.docs) {
         const c = cDoc.data();
-        if (c.alturaTotal === 0) continue;
+        if (!c.alturaTotal || c.alturaTotal === 0) continue;
 
         const sSnap = await getDocs(collection(cDoc.ref, "secoes"));
         const secoes = sSnap.docs.map(s => {
@@ -133,58 +166,31 @@ export default function AuditoriaCubagem() {
       setListaCubagem(temporario);
       if (temporario.length > 0) setArvoreSelecionada(temporario[0]);
 
+    } catch (e) {
+      console.error("Erro na auditoria:", e);
+      alert("Erro ao processar dados de cubagem.");
     } finally { setLoading(false); }
   };
 
-  // FUNÇÃO DE EXPORTAÇÃO CSV
   const exportarCSV = () => {
     if (listaCubagem.length === 0) return alert("Não há dados para exportar.");
-
-    const headers = [
-      "Identificador", "Fazenda", "Talhão", "Classe", "CAP (cm)", "Altura Total (m)", 
-      "Status Geral", "H Seção (m)", "Circunf (cm)", "DAP Seção (cm)"
-    ];
-
+    const headers = ["Identificador", "Fazenda", "Talhão", "Classe", "CAP (cm)", "Altura Total (m)", "Status Geral", "H Seção (m)", "Circunf (cm)", "DAP Seção (cm)"];
     const rows: any[] = [];
-
     listaCubagem.forEach(arvore => {
-      // Se a árvore tiver seções, exporta uma linha para cada seção
       if (arvore.secoes.length > 0) {
         arvore.secoes.forEach(secao => {
-          rows.push([
-            arvore.identificador,
-            arvore.fazenda,
-            arvore.talhao,
-            arvore.classe,
-            arvore.cap.toFixed(1).replace(".", ","),
-            arvore.altura.toFixed(1).replace(".", ","),
-            arvore.status,
-            secao.alturaMedicao.toFixed(2).replace(".", ","),
-            secao.circunferencia.toFixed(1).replace(".", ","),
-            secao.diametro.toFixed(2).replace(".", ",")
-          ]);
+          rows.push([arvore.identificador, arvore.fazenda, arvore.talhao, arvore.classe, arvore.cap.toFixed(1).replace(".", ","), arvore.altura.toFixed(1).replace(".", ","), arvore.status, secao.alturaMedicao.toFixed(2).replace(".", ","), secao.circunferencia.toFixed(1).replace(".", ","), secao.diametro.toFixed(2).replace(".", ",")]);
         });
       } else {
-        // Se não tiver seções, exporta apenas os dados da árvore
-        rows.push([
-          arvore.identificador,
-          arvore.fazenda,
-          arvore.talhao,
-          arvore.classe,
-          arvore.cap.toFixed(1).replace(".", ","),
-          arvore.altura.toFixed(1).replace(".", ","),
-          arvore.status,
-          "", "", ""
-        ]);
+        rows.push([arvore.identificador, arvore.fazenda, arvore.talhao, arvore.classe, arvore.cap.toFixed(1).replace(".", ","), arvore.altura.toFixed(1).replace(".", ","), arvore.status, "", "", ""]);
       }
     });
-
     const csvContent = "\uFEFF" + [headers.join(";"), ...rows.map(r => r.join(";"))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `cubagem_projeto_${projId}_${new Date().toLocaleDateString("pt-BR").replaceAll("/", "-")}.csv`);
+    link.setAttribute("download", `auditoria_cubagem_${projId}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
@@ -194,6 +200,7 @@ export default function AuditoriaCubagem() {
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900 font-sans">
       
+      {/* SIDEBAR AJUSTÁVEL - FILTRADA APENAS PARA CUBAGEM */}
       <aside 
         style={{ width: sidebarOpen ? `${sidebarWidth}px` : '0px' }} 
         className="bg-slate-900 text-white transition-all duration-300 relative flex flex-col shrink-0 overflow-hidden shadow-2xl"
@@ -205,29 +212,53 @@ export default function AuditoriaCubagem() {
           </div>
           
           <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+            {/* 1. FAZENDAS DE CUBAGEM */}
             <div className="flex flex-col h-1/2">
-              <label className="text-[10px] font-black text-slate-500 uppercase mb-2">1. Fazendas</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase mb-2">1. Fazendas (Contexto Cubagem)</label>
               <div className="flex-1 overflow-y-auto pr-2 border border-slate-800 p-2 rounded-xl bg-black/10 custom-scrollbar">
-                {fazendas.map(f => (
-                  <label key={f.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-slate-800 p-1.5 rounded transition-all">
-                    <input type="checkbox" className="accent-emerald-500" checked={fazendasSel.includes(f.id)} onChange={(e) => e.target.checked ? setFazendasSel([...fazendasSel, f.id]) : setFazendasSel(fazendasSel.filter(id => id !== f.id))} />
-                    <span className={fazendasSel.includes(f.id) ? "text-emerald-400 font-bold" : "text-slate-400"}>{f.nome}</span>
-                  </label>
-                ))}
+                {fazendas.map((f) => {
+                  const ativ = atividades.find(a => String(a.id) === String(f.atividadeId));
+                  return (
+                    <label 
+                      key={f.id} 
+                      className="flex items-center justify-between gap-2 text-xs cursor-pointer hover:bg-slate-800 p-2 rounded transition-all border-b border-slate-800/50 last:border-0"
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <input 
+                            type="checkbox" 
+                            className="accent-emerald-500" 
+                            checked={fazendasSel.includes(f.id)} 
+                            onChange={(e) => e.target.checked ? setFazendasSel([...fazendasSel, f.id]) : setFazendasSel(fazendasSel.filter(id => id !== f.id))} 
+                        />
+                        <div className="flex flex-col truncate">
+                            <span className={fazendasSel.includes(f.id) ? "text-emerald-400 font-bold" : "text-slate-300"}>{f.nome}</span>
+                            <span className="text-[8px] text-slate-500 font-black uppercase tracking-tighter">Ativ: {ativ?.tipo || "CUB"}</span>
+                        </div>
+                      </div>
+                      <Tag size={10} className="text-emerald-500" />
+                    </label>
+                  );
+                })}
               </div>
             </div>
 
+            {/* 2. TALHÕES DE CUBAGEM */}
             <div className="flex flex-col flex-1 overflow-hidden">
-              <label className="text-[10px] font-black text-slate-500 uppercase mb-2">2. Talhões</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase mb-2">2. Talhões Selecionados</label>
               <div className="flex-1 overflow-y-auto pr-2 border border-slate-800 p-2 rounded-xl bg-black/10 custom-scrollbar">
                 {fazendasSel.length > 0 ? (
-                  talhoes.filter(t => fazendasSel.includes(String(t.fazendaId))).map(t => (
-                    <label key={t.id} className="flex items-center gap-2 text-[10px] cursor-pointer hover:bg-slate-800 p-1 rounded">
-                      <input type="checkbox" className="accent-emerald-500" checked={talhoesSel.includes(String(t.id))} onChange={(e) => e.target.checked ? setTalhoesSel([...talhoesSel, String(t.id)]) : setTalhoesSel(talhoesSel.filter(id => id !== String(t.id)))} />
+                  talhoes.filter(t => fazendasSel.includes(String(t.fazendaId))).map((t) => (
+                    <label key={t.id} className="flex items-center gap-2 text-[10px] cursor-pointer hover:bg-slate-800 p-1 rounded transition-all">
+                      <input 
+                        type="checkbox" 
+                        className="accent-emerald-500" 
+                        checked={talhoesSel.includes(String(t.id))} 
+                        onChange={(e) => e.target.checked ? setTalhoesSel([...talhoesSel, String(t.id)]) : setTalhoesSel(talhoesSel.filter(id => id !== String(t.id)))} 
+                      />
                       <span className={talhoesSel.includes(String(t.id)) ? "text-white font-bold" : "text-slate-500"}>{t.nome}</span>
                     </label>
                   ))
-                ) : <p className="text-[10px] text-slate-600 text-center mt-10 italic">Selecione uma fazenda.</p>}
+                ) : <p className="text-[10px] text-slate-600 text-center mt-10 italic">Selecione uma fazenda acima.</p>}
               </div>
             </div>
           </div>
@@ -238,10 +269,12 @@ export default function AuditoriaCubagem() {
         </div>
       </aside>
 
+      {/* REABRIR SIDEBAR */}
       {!sidebarOpen && (
         <button onClick={() => setSidebarOpen(true)} className="absolute left-4 top-4 z-50 bg-slate-900 text-emerald-400 p-3 rounded-2xl shadow-2xl border border-emerald-500/30"><ChevronRight size={24}/></button>
       )}
 
+      {/* ÁREA DE AUDITORIA */}
       <main className="flex-1 flex flex-col overflow-hidden p-6 gap-6 relative">
         
         {loading ? (
@@ -306,16 +339,11 @@ export default function AuditoriaCubagem() {
               <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                 <div className="flex items-center gap-3">
                     <Ruler size={18} className="text-slate-400" />
-                    <h3 className="text-sm font-black text-slate-700 uppercase">Lista de Árvores Derrubadas (Cubagem)</h3>
+                    <h3 className="text-sm font-black text-slate-700 uppercase">Lista de Árvores Cubadas</h3>
                 </div>
                 <div className="flex items-center gap-4">
-                  <button
-                    onClick={exportarCSV}
-                    className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black text-[10px] uppercase tracking-widest"
-                  >
-                    <Download size={14} /> Exportar Planilha
-                  </button>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase">Clique na linha para visualizar o gráfico</p>
+                  <button onClick={exportarCSV} className="text-emerald-600 hover:text-emerald-700 flex items-center gap-1 transition-all font-black text-[10px] uppercase tracking-widest"><Download size={14} /> Exportar Planilha</button>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase italic">Clique na linha para ver o gráfico</p>
                 </div>
               </div>
               <div className="overflow-auto flex-1 custom-scrollbar">
