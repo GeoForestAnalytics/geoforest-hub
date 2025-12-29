@@ -6,7 +6,8 @@ import {
   CircleDollarSign, 
   Users, 
   Car,
-  FileText // ✅ Adicionado ícone para o Rascunho de Nota
+  FileText,
+  LayoutDashboard // ✅ Adicionado ícone para o Dashboard
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -37,6 +38,15 @@ export default function RootLayout({
 
           {/* Navegação Principal */}
           <nav className="space-y-2 flex-1">
+            {/* ✅ NOVO: Painel Executivo (Dashboard) */}
+            <Link 
+              href="/dashboard" 
+              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group"
+            >
+              <LayoutDashboard size={20} className="group-hover:scale-110 transition-transform" /> 
+              Painel Executivo
+            </Link>
+
             <Link 
               href="/projetos" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group"
@@ -53,7 +63,7 @@ export default function RootLayout({
               Financeiro
             </Link>
 
-            {/* ✅ Novo Link para Emissão de Rascunho de Nota */}
+            {/* ✅ Link para Emissão de Rascunho de Nota */}
             <Link 
               href="/financeiro/rascunho-nota" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300"
@@ -70,7 +80,7 @@ export default function RootLayout({
               Equipes
             </Link>
 
-            {/* ✅ Link de Frotas Corrigido */}
+            {/* ✅ Link de Frotas */}
             <Link
               href="/frota" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300"

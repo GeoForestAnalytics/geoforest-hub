@@ -11,7 +11,8 @@ import {
   Plus,
   Briefcase,
   ArrowUpRight,
-  Banknote
+  Banknote,
+  Axe // ✅ Ícone para representar Cubagem
 } from "lucide-react";
 
 interface Projeto {
@@ -28,16 +29,15 @@ export default function ProjetosPage() {
   const { licenseId, loading: authLoading } = useLicense(); 
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [todosDiarios, setTodosDiarios] = useState<any[]>([]);
-  const [todosGastosAdm, setTodosGastosAdm] = useState<any[]>([]); // ✅ Novo estado para gastos ADM
+  const [todosGastosAdm, setTodosGastosAdm] = useState<any[]>([]);
+  const [totalCubagens, setTotalCubagens] = useState(0); // ✅ Novo estado para Cubagem
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-     // Trava de segurança: só roda se tiver o ID da empresa
     if (!licenseId) return;
-
     setLoadingData(true);
 
-    // 1. Monitorar Projetos
+    // 1. Projetos (Resumo de Amostras)
     const unsubProj = onSnapshot(collection(db, `clientes/${licenseId}/projetos`), (snapshot) => {
       setProjetos(snapshot.docs.map(doc => ({
         id: doc.id,
@@ -47,19 +47,24 @@ export default function ProjetosPage() {
       } as Projeto)));
     });
 
-    // 2. Monitorar Diários de Campo (Custos operacionais)
+    // 2. Diários (Custos de Campo)
     const unsubDiarios = onSnapshot(collection(db, `clientes/${licenseId}/diarios_de_campo`), (snapshot) => {
       setTodosDiarios(snapshot.docs.map(doc => doc.data()));
     });
 
-    // 3. Monitorar Gastos Administrativos de TODOS os projetos da empresa
-    // Usamos collectionGroup para pegar todos os "gastos_adm" que existem dentro de qualquer projeto dessa licença
+    // 3. Gastos ADM (Global)
     const unsubGastosGlobal = onSnapshot(collectionGroup(db, "gastos_adm"), (snapshot) => {
-        // Filtramos manualmente para pegar apenas os que pertencem à licença atual por segurança
         const gastosDaEmpresa = snapshot.docs
             .filter(doc => doc.ref.path.includes(licenseId))
             .map(doc => doc.data());
         setTodosGastosAdm(gastosDaEmpresa);
+    });
+
+    // 4. ✅ MONITORAMENTO DE CUBAGEM (Produção de Árvores)
+    const unsubCubagem = onSnapshot(collection(db, `clientes/${licenseId}/dados_cubagem`), (snapshot) => {
+        // Contamos apenas árvores que possuem alturaTotal (indicativo de finalização técnica)
+        const concluidas = snapshot.docs.filter(doc => (Number(doc.data().alturaTotal) || 0) > 0).length;
+        setTotalCubagens(concluidas);
         setLoadingData(false);
     });
 
@@ -67,32 +72,38 @@ export default function ProjetosPage() {
         unsubProj(); 
         unsubDiarios(); 
         unsubGastosGlobal(); 
+        unsubCubagem();
     };
-  }, [licenseId]); // Dependência única e estável
+  }, [licenseId]);
 
-  // --- CÁLCULOS EXECUTIVOS GLOBAIS (CAMPO + ADM) ---
+  // --- CÁLCULOS EXECUTIVOS GLOBAIS ATUALIZADOS ---
   const globalKpis = useMemo(() => {
-    // Soma Diários (Campo)
+    // Soma Custos
     const custoCampo = todosDiarios.reduce((acc, d) => acc + 
         (Number(d.abastecimentoValor || d.abastecimento_valor) || 0) + 
         (Number(d.pedagioValor || d.pedagio_valor) || 0) + 
         (Number(d.alimentacaoRefeicaoValor || d.alimentacao_refeicao_valor) || 0) +
         (Number(d.outrasDespesasValor || d.outras_despesas_valor) || 0), 0);
 
-    // Soma Gastos ADM (Escritório/Gestão)
     const custoAdm = todosGastosAdm.reduce((acc, g) => acc + (Number(g.valor) || 0), 0);
-
     const investimentoTotal = custoCampo + custoAdm;
-    const amostrasFeitas = projetos.reduce((acc, p) => acc + p.talhoesConcluidos, 0);
-    const totalAmostras = projetos.reduce((acc, p) => acc + p.totalTalhoes, 0);
+
+    // Soma Produção (Amostras + Cubagens)
+    const amostrasTotais = projetos.reduce((acc, p) => acc + p.talhoesConcluidos, 0);
+    const producaoTotalUnidades = amostrasTotais + totalCubagens; // ✅ Soma das duas frentes
     
     return {
       investimentoTotal,
-      amostrasTotais: amostrasFeitas,
-      eficiencia: amostrasFeitas > 0 ? investimentoTotal / amostrasFeitas : 0,
-      progressoGlobal: totalAmostras > 0 ? Math.round((amostrasFeitas / totalAmostras) * 100) : 0
+      amostrasTotais,
+      cubagensTotais: totalCubagens,
+      unidadesTotais: producaoTotalUnidades,
+      // Eficiência agora considera Amostras + Árvores Cubadas
+      eficiencia: producaoTotalUnidades > 0 ? investimentoTotal / producaoTotalUnidades : 0,
+      progressoGlobal: projetos.reduce((acc, p) => acc + p.totalTalhoes, 0) > 0 
+        ? Math.round((amostrasTotais / projetos.reduce((acc, p) => acc + p.totalTalhoes, 0)) * 100) 
+        : 0
     };
-  }, [todosDiarios, todosGastosAdm, projetos]);
+  }, [todosDiarios, todosGastosAdm, projetos, totalCubagens]);
 
   if (authLoading || (loadingData && projetos.length === 0)) return (
     <div className="p-8 flex flex-col items-center justify-center min-h-screen bg-slate-50">
@@ -127,7 +138,11 @@ export default function ProjetosPage() {
             <div className="bg-blue-100 p-3 rounded-2xl w-fit text-blue-700 mb-4"><CheckCircle2 size={24}/></div>
             <div>
                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Produção Total</p>
-                <h2 className="text-3xl font-black text-slate-900">{globalKpis.amostrasTotais} <span className="text-sm font-medium text-slate-400">Amostras</span></h2>
+                <h2 className="text-3xl font-black text-slate-900">{globalKpis.unidadesTotais}</h2>
+                <div className="flex gap-2 mt-1">
+                    <span className="text-[9px] bg-slate-100 px-2 py-0.5 rounded-full font-bold text-slate-500 uppercase">{globalKpis.amostrasTotais} Amostras</span>
+                    <span className="text-[9px] bg-emerald-50 px-2 py-0.5 rounded-full font-bold text-emerald-600 uppercase">{globalKpis.cubagensTotais} Cubagens</span>
+                </div>
             </div>
         </div>
 
@@ -136,12 +151,13 @@ export default function ProjetosPage() {
             <div>
                 <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Custo Médio p/ Unidade</p>
                 <h2 className="text-2xl font-black text-slate-900">R$ {globalKpis.eficiencia.toFixed(2)}</h2>
+                <p className="text-[8px] text-slate-400 font-medium italic mt-1">(Considerando Amostras + Árvores)</p>
             </div>
         </div>
 
         <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm flex flex-col justify-center">
             <div className="flex justify-between items-end mb-2">
-                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Progresso Global</p>
+                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Progresso Amostras</p>
                 <span className="text-lg font-black text-emerald-600">{globalKpis.progressoGlobal}%</span>
             </div>
             <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -154,7 +170,7 @@ export default function ProjetosPage() {
         <Briefcase size={14}/> Carteira de Projetos Ativos
       </h2>
 
-      {/* LISTA DE PROJETOS MANTIDA IGUAL AO SEU DESIGN */}
+      {/* LISTA DE PROJETOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {projetos.map((proj) => {
           const porcentagem = proj.totalTalhoes > 0 ? Math.round((proj.talhoesConcluidos / proj.totalTalhoes) * 100) : 0;
