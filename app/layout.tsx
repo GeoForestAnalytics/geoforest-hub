@@ -5,7 +5,8 @@ import {
   TreeDeciduous, 
   CircleDollarSign, 
   Users, 
-  Car // ✅ Importado o ícone de carro para a Frota
+  Car,
+  FileText // ✅ Adicionado ícone para o Rascunho de Nota
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -50,6 +51,15 @@ export default function RootLayout({
             >
               <CircleDollarSign size={20} className="group-hover:scale-110 transition-transform" /> 
               Financeiro
+            </Link>
+
+            {/* ✅ Novo Link para Emissão de Rascunho de Nota */}
+            <Link 
+              href="/financeiro/rascunho-nota" 
+              className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300"
+            >
+              <FileText size={20} className="group-hover:scale-110 transition-transform" /> 
+              Rascunho de NF
             </Link>
 
             <Link 
