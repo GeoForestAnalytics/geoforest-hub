@@ -93,20 +93,21 @@ export default function DetalhesProjeto() {
     carregarTudo(); 
   }, [projId, licenseId]);
 
-  // ✅ FUNÇÕES DE EXCLUSÃO
-  const handleExcluirTalhao = async (id: string, nome: string) => {
+  // ✅ FUNÇÕES DE EXCLUSÃO CORRIGIDAS (FORÇANDO STRING)
+  const handleExcluirTalhao = async (id: any, nome: string) => {
     if (!confirm(`Deseja excluir o talhão "${nome}"?`)) return;
     try {
-      console.log("Tentando excluir talhão:", `clientes/${licenseId}/talhoes/${id}`);
-      await deleteDoc(doc(db, "clientes", String(licenseId), "talhoes", String(id)));
+      // Usamos String(id) para garantir que não vá um número para o Firebase
+      const talhaoRef = doc(db, "clientes", String(licenseId), "talhoes", String(id));
+      await deleteDoc(talhaoRef);
       console.log("Talhão excluído com sucesso");
     } catch (e: any) { 
-      console.error("Erro detalhado ao excluir talhão:", e);
+      console.error("Erro ao excluir talhão:", e);
       alert("Erro ao excluir talhão: " + e.message); 
     }
   };
 
-  const handleExcluirFazenda = async (id: string, nome: string) => {
+  const handleExcluirFazenda = async (id: any, nome: string) => {
     const possuiTalhoes = talhoes.some(t => String(t.fazendaId) === String(id));
     if (possuiTalhoes) {
       alert(`Não é possível excluir a fazenda "${nome}" porque ela ainda possui talhões.`);
@@ -114,19 +115,22 @@ export default function DetalhesProjeto() {
     }
     if (!confirm(`Deseja excluir a fazenda "${nome}"?`)) return;
     try {
-      console.log("Tentando excluir fazenda:", `clientes/${licenseId}/fazendas/${id}`);
-      await deleteDoc(doc(db, "clientes", String(licenseId), "fazendas", String(id)));
+      const fazendaRef = doc(db, "clientes", String(licenseId), "fazendas", String(id));
+      await deleteDoc(fazendaRef);
+      console.log("Fazenda excluída com sucesso");
     } catch (e: any) { 
       console.error("Erro ao excluir fazenda:", e);
       alert("Erro ao excluir fazenda: " + e.message); 
     }
   };
 
-  const handleExcluirAtividade = async (id: string, tipo: string) => {
+  const handleExcluirAtividade = async (id: any, tipo: string) => {
     if (!confirm(`Deseja excluir a atividade "${tipo}"?`)) return;
     try {
-      console.log("Tentando excluir atividade:", `clientes/${licenseId}/atividades/${id}`);
-      await deleteDoc(doc(db, "clientes", String(licenseId), "atividades", String(id)));
+      // O erro do seu print aconteceu exatamente aqui, transformamos o ID em String
+      const atividadeRef = doc(db, "clientes", String(licenseId), "atividades", String(id));
+      await deleteDoc(atividadeRef);
+      console.log("Atividade excluída com sucesso");
     } catch (e: any) { 
       console.error("Erro ao excluir atividade:", e);
       alert("Erro ao excluir atividade: " + e.message); 
