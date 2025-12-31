@@ -97,22 +97,40 @@ export default function DetalhesProjeto() {
   const handleExcluirTalhao = async (id: string, nome: string) => {
     if (!confirm(`Deseja excluir o talhão "${nome}"?`)) return;
     try {
-      await deleteDoc(doc(db, `clientes/${licenseId}/talhoes`, id));
-    } catch (e) { alert("Erro ao excluir talhão."); }
+      console.log("Tentando excluir talhão:", `clientes/${licenseId}/talhoes/${id}`);
+      await deleteDoc(doc(db, "clientes", String(licenseId), "talhoes", String(id)));
+      console.log("Talhão excluído com sucesso");
+    } catch (e: any) { 
+      console.error("Erro detalhado ao excluir talhão:", e);
+      alert("Erro ao excluir talhão: " + e.message); 
+    }
   };
 
   const handleExcluirFazenda = async (id: string, nome: string) => {
-    if (!confirm(`Deseja excluir a fazenda "${nome}"? Todos os talhões vinculados a ela devem ser excluídos individualmente primeiro para evitar resíduos.`)) return;
+    const possuiTalhoes = talhoes.some(t => String(t.fazendaId) === String(id));
+    if (possuiTalhoes) {
+      alert(`Não é possível excluir a fazenda "${nome}" porque ela ainda possui talhões.`);
+      return;
+    }
+    if (!confirm(`Deseja excluir a fazenda "${nome}"?`)) return;
     try {
-      await deleteDoc(doc(db, `clientes/${licenseId}/fazendas`, id));
-    } catch (e) { alert("Erro ao excluir fazenda."); }
+      console.log("Tentando excluir fazenda:", `clientes/${licenseId}/fazendas/${id}`);
+      await deleteDoc(doc(db, "clientes", String(licenseId), "fazendas", String(id)));
+    } catch (e: any) { 
+      console.error("Erro ao excluir fazenda:", e);
+      alert("Erro ao excluir fazenda: " + e.message); 
+    }
   };
 
   const handleExcluirAtividade = async (id: string, tipo: string) => {
-    if (!confirm(`ATENÇÃO: Deseja excluir a atividade "${tipo}"? Isso não apagará os dados de coleta, mas removerá o vínculo com este projeto.`)) return;
+    if (!confirm(`Deseja excluir a atividade "${tipo}"?`)) return;
     try {
-      await deleteDoc(doc(db, `clientes/${licenseId}/atividades`, id));
-    } catch (e) { alert("Erro ao excluir atividade."); }
+      console.log("Tentando excluir atividade:", `clientes/${licenseId}/atividades/${id}`);
+      await deleteDoc(doc(db, "clientes", String(licenseId), "atividades", String(id)));
+    } catch (e: any) { 
+      console.error("Erro ao excluir atividade:", e);
+      alert("Erro ao excluir atividade: " + e.message); 
+    }
   };
 
   const financeiro = useMemo(() => {
