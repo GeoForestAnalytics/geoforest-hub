@@ -74,22 +74,30 @@ export default function ProjetosPage() {
   }, [licenseId]);
 
   // ✅ FUNÇÃO PARA EXCLUIR PROJETO
-  const handleExcluirProjeto = async (e: React.MouseEvent, id: string, nome: string) => {
-    e.preventDefault(); // Impede a navegação do Link
-    e.stopPropagation(); // Impede que o clique chegue ao card
+  const handleExcluirProjeto = async (e: React.MouseEvent, id: any, nome: string) => {
+  e.preventDefault(); // Impede abrir o projeto
+  e.stopPropagation(); // Impede o clique no card
 
-    if (!confirm(`Tem certeza que deseja excluir permanentemente o projeto "${nome}"?`)) {
-      return;
-    }
+  if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"?`)) {
+    return;
+  }
 
-    try {
-      await deleteDoc(doc(db, `clientes/${licenseId}/projetos`, id));
-      // O onSnapshot atualizará a lista automaticamente
-    } catch (error) {
-      console.error("Erro ao excluir:", error);
-      alert("Erro ao excluir projeto. Verifique suas permissões.");
-    }
-  };
+  try {
+    // 🛡️ BLINDAGEM: Forçamos Strings e usamos a sintaxe de vírgulas, que é mais estável no Firebase
+    // doc(db, "coleção", "documento", "subcoleção", "documento")
+    const projetoRef = doc(db, "clientes", String(licenseId), "projetos", String(id));
+    
+    await deleteDoc(projetoRef);
+    
+    console.log("Projeto excluído com sucesso");
+    // O onSnapshot se encarregará de remover o card da tela automaticamente
+  } catch (error: any) {
+    console.error("Erro detalhado ao excluir projeto:", error);
+    
+    // Se o erro for de permissão, ele avisará. Se for de código, também.
+    alert(`Falha na exclusão: ${error.message.includes("permission") ? "Acesso negado pelas regras de segurança." : error.message}`);
+  }
+};
 
   const globalKpis = useMemo(() => {
     const custoCampo = todosDiarios.reduce((acc, d) => acc + 
