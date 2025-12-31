@@ -101,6 +101,13 @@ export default function DetalhesProjeto() {
     } catch (e) { alert("Erro ao excluir talhão."); }
   };
 
+  const handleExcluirFazenda = async (id: string, nome: string) => {
+    if (!confirm(`Deseja excluir a fazenda "${nome}"? Todos os talhões vinculados a ela devem ser excluídos individualmente primeiro para evitar resíduos.`)) return;
+    try {
+      await deleteDoc(doc(db, `clientes/${licenseId}/fazendas`, id));
+    } catch (e) { alert("Erro ao excluir fazenda."); }
+  };
+
   const handleExcluirAtividade = async (id: string, tipo: string) => {
     if (!confirm(`ATENÇÃO: Deseja excluir a atividade "${tipo}"? Isso não apagará os dados de coleta, mas removerá o vínculo com este projeto.`)) return;
     try {
@@ -163,6 +170,7 @@ export default function DetalhesProjeto() {
         <Link href="/projetos" className="text-[10px] font-black uppercase hover:text-emerald-600 flex items-center gap-1 transition-all text-slate-400"><ArrowLeft size={14} /> Painel de Projetos</Link>
       </nav>
 
+      {/* HEADER PROJETO */}
       <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-sm mb-8 flex flex-col md:flex-row justify-between items-center gap-6">
         <div>
           <h1 className="text-4xl font-black text-slate-900 mb-1 tracking-tighter uppercase">{projeto?.nome}</h1>
@@ -174,6 +182,7 @@ export default function DetalhesProjeto() {
         </div>
       </div>
 
+      {/* KPI CARDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
         <div className="bg-slate-900 p-6 rounded-[32px] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
             <DollarSign className="absolute -right-4 -bottom-4 text-emerald-500/10" size={100} />
@@ -214,7 +223,6 @@ export default function DetalhesProjeto() {
                             <div className="bg-slate-900 p-4 px-8 flex justify-between items-center text-white">
                                 <div className="flex items-center gap-4">
                                   <span className="font-black text-[10px] uppercase tracking-widest">{ativ.tipo}</span>
-                                  {/* ✅ BOTÃO EXCLUIR ATIVIDADE */}
                                   <button onClick={() => handleExcluirAtividade(ativ.id, ativ.tipo)} className="p-1 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                                 </div>
                                 <span className="text-emerald-400 text-[9px] font-bold uppercase">{ativ.metodoCubagem || "Padrão"}</span>
@@ -238,19 +246,23 @@ export default function DetalhesProjeto() {
 
                                     return (
                                         <div key={faz.id} className="bg-slate-50 rounded-2xl overflow-hidden border border-slate-100">
-                                            <div onClick={() => toggleFazenda(ativ.id, faz.id)} className="p-4 flex flex-col md:flex-row justify-between items-center cursor-pointer group hover:bg-white transition-all">
-                                                <div className="flex items-center gap-3">
+                                            <div className="p-4 flex flex-col md:flex-row justify-between items-center group hover:bg-white transition-all">
+                                                <div onClick={() => toggleFazenda(ativ.id, faz.id)} className="flex items-center gap-3 cursor-pointer flex-1">
                                                     <div className={`w-1.5 h-6 rounded-full ${porcFazenda === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
                                                     <span className="text-xs font-black text-slate-700 uppercase group-hover:text-emerald-600 transition-colors">{faz.nome}</span>
                                                 </div>
                                                 <div className="flex items-center gap-4 mt-2 md:mt-0">
-                                                    <div className="flex flex-col items-end">
+                                                    {/* ✅ BOTÃO EXCLUIR FAZENDA */}
+                                                    <button onClick={() => handleExcluirFazenda(faz.id, faz.nome)} className="p-1.5 text-slate-300 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
+                                                    <div className="flex flex-col items-end min-w-[80px]">
                                                         <span className="text-[9px] font-black text-slate-400 uppercase">{concluidosT}/{totalT} Talhões</span>
                                                         <div className="w-24 bg-slate-200 h-1 rounded-full overflow-hidden mt-0.5">
                                                             <div className={`h-full transition-all duration-700 ${porcFazenda === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${porcFazenda}%` }}></div>
                                                         </div>
                                                     </div>
-                                                    {isMin ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+                                                    <div onClick={() => toggleFazenda(ativ.id, faz.id)} className="cursor-pointer">
+                                                      {isMin ? <ChevronDown size={16}/> : <ChevronUp size={16}/>}
+                                                    </div>
                                                 </div>
                                             </div>
                                             {!isMin && (
@@ -271,7 +283,6 @@ export default function DetalhesProjeto() {
                                                                 <div className="flex justify-between items-start mb-2">
                                                                   <p className="text-[10px] font-black text-slate-800 uppercase">{tal.nome}</p>
                                                                   <div className="flex items-center gap-2">
-                                                                    {/* ✅ BOTÃO EXCLUIR TALHÃO */}
                                                                     <button onClick={() => handleExcluirTalhao(tal.id, tal.nome)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                                                                     <Link href={urlDetalhe} className="text-slate-300 hover:text-emerald-600 transition-colors"><Settings size={14} /></Link>
                                                                   </div>
@@ -292,8 +303,8 @@ export default function DetalhesProjeto() {
             </div>
         </div>
 
+        {/* FINANCEIRO COLUNA DIREITA */}
         <div className="space-y-6">
-            {/* FORMULÁRIOS FINANCEIROS MANTIDOS INTACTOS */}
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-xl border-t-4 border-t-emerald-500">
                 <div className="flex justify-between items-center mb-6"><h2 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2"><ArrowDownCircle className="text-emerald-500" size={18}/> Receitas</h2><button onClick={() => setShowFaturaForm(!showFaturaForm)} className="bg-emerald-500 text-white p-2 rounded-full hover:bg-emerald-600 transition-all"><Plus size={16} /></button></div>
                 {showFaturaForm && (
