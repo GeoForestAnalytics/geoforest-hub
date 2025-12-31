@@ -93,8 +93,22 @@ export default function DetalhesProjeto() {
     carregarTudo(); 
   }, [projId, licenseId]);
 
+  // ✅ FUNÇÕES DE EXCLUSÃO ADICIONADAS
+  const handleExcluirTalhao = async (id: string, nome: string) => {
+    if (!confirm(`Deseja excluir o talhão "${nome}"? Esta ação removerá o talhão da lista operacional.`)) return;
+    try {
+      await deleteDoc(doc(db, `clientes/${licenseId}/talhoes`, id));
+    } catch (e) { alert("Erro ao excluir talhão."); }
+  };
+
+  const handleExcluirAtividade = async (id: string, tipo: string) => {
+    if (!confirm(`ATENÇÃO: Deseja excluir a atividade "${tipo}"? Isso não apagará os dados de coleta, mas removerá o vínculo com este projeto.`)) return;
+    try {
+      await deleteDoc(doc(db, `clientes/${licenseId}/atividades`, id));
+    } catch (e) { alert("Erro ao excluir atividade."); }
+  };
+
   const financeiro = useMemo(() => {
-    // 1. Financeiro
     const custoCampo = diarios.reduce((acc, d) => acc + (Number(d.abastecimentoValor || d.abastecimento_valor || 0) + Number(d.pedagioValor || d.pedagio_valor || 0) + Number(d.alimentacaoRefeicaoValor || d.alimentacao_refeicao_valor || 0) + Number(d.outrasDespesasValor || d.outras_despesas_valor || 0)), 0);
     const custoAdm = gastosAdm.reduce((acc, g) => acc + (Number(g.valor) || 0), 0);
     const totalCustos = custoCampo + custoAdm;
@@ -102,12 +116,9 @@ export default function DetalhesProjeto() {
     const lucroLiquido = totalReceita - totalCustos;
     const margem = totalReceita > 0 ? (lucroLiquido / totalReceita) * 100 : 0;
     
-    // 2. ✅ LÓGICA DE PRODUÇÃO BLINDADA
-    // Amostras vinculadas a este projeto (já filtradas pela query)
     const totalAmo = amostras.length;
     const concluidasAmo = amostras.filter(a => ["concluida", "exportada", "concluido"].includes(String(a.status || "").toLowerCase())).length;
 
-    // Cubagem: Identificamos os talhões que pertencem às atividades de CUB deste projeto
     const idsAtivCub = atividades.filter(a => a.tipo.toUpperCase().includes("CUB")).map(a => String(a.id));
     const talhoesCubProj = talhoes.filter(t => idsAtivCub.includes(String(t.atividadeId)) || idsAtivCub.includes(String(t.fazendaAtividadeId)));
     const idsTalhoesCub = talhoesCubProj.map(t => String(t.id));
@@ -163,7 +174,6 @@ export default function DetalhesProjeto() {
         </div>
       </div>
 
-      {/* ✅ GRID DE 5 CARDS: TUDO INTEGRADO */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-10">
         <div className="bg-slate-900 p-6 rounded-[32px] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden">
             <DollarSign className="absolute -right-4 -bottom-4 text-emerald-500/10" size={100} />
@@ -178,8 +188,6 @@ export default function DetalhesProjeto() {
             <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Lucro Líquido</p>
             <h2 className={`text-2xl font-black mt-2 ${financeiro.lucroLiquido >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {financeiro.lucroLiquido.toLocaleString('pt-BR')}</h2>
         </div>
-        
-        {/* ✅ KPI DE PRODUÇÃO CORRIGIDO: MOSTRA VALORES DA CUBAGEM */}
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col justify-between">
             <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Produção Atual</p>
             <div className="mt-2">
@@ -187,7 +195,6 @@ export default function DetalhesProjeto() {
                 <p className="text-sm font-black text-emerald-600">{financeiro.concluidasCub}/{financeiro.totalCub} <span className="text-[9px] text-emerald-400">CUB</span></p>
             </div>
         </div>
-        
         <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col justify-between">
             <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">Execução</p>
             <h2 className="text-2xl font-black text-slate-900 mt-2">{financeiro.progressoTotal}%</h2>
@@ -204,8 +211,18 @@ export default function DetalhesProjeto() {
                     const fazendasDestaAtiv = fazendas.filter(f => f.activityId === ativ.id || f.atividadeId === ativ.id);
                     return (
                         <div key={ativ.id} className="mb-8 border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
+                            {/* ✅ CABEÇALHO DA ATIVIDADE COM EXCLUSÃO */}
                             <div className="bg-slate-900 p-4 px-8 flex justify-between items-center text-white">
-                                <span className="font-black text-[10px] uppercase tracking-widest">{ativ.tipo}</span>
+                                <div className="flex items-center gap-4">
+                                  <span className="font-black text-[10px] uppercase tracking-widest">{ativ.tipo}</span>
+                                  <button 
+                                    onClick={() => handleExcluirAtividade(ativ.id, ativ.tipo)}
+                                    className="p-1 text-slate-500 hover:text-red-500 transition-colors"
+                                    title="Excluir Atividade"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
                                 <span className="text-emerald-400 text-[9px] font-bold uppercase">{ativ.metodoCubagem || "Padrão"}</span>
                             </div>
                             <div className="p-6 space-y-4">
@@ -257,7 +274,21 @@ export default function DetalhesProjeto() {
                                                         const porcentagem = total > 0 ? Math.round((concluidas / total) * 100) : 0;
                                                         return (
                                                             <div key={tal.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl relative group">
-                                                                <div className="flex justify-between items-start mb-2"><p className="text-[10px] font-black text-slate-800 uppercase">{tal.nome}</p><Link href={urlDetalhe} className="text-slate-300 hover:text-emerald-600 transition-colors"><Settings size={14} /></Link></div>
+                                                                <div className="flex justify-between items-start mb-2">
+                                                                  <p className="text-[10px] font-black text-slate-800 uppercase">{tal.nome}</p>
+                                                                  <div className="flex items-center gap-2">
+                                                                    {/* ✅ BOTÃO EXCLUIR TALHÃO */}
+                                                                    <button 
+                                                                      onClick={() => handleExcluirTalhao(tal.id, tal.nome)}
+                                                                      className="text-slate-300 hover:text-red-500 transition-colors"
+                                                                    >
+                                                                      <Trash2 size={12} />
+                                                                    </button>
+                                                                    <Link href={urlDetalhe} className="text-slate-300 hover:text-emerald-600 transition-colors">
+                                                                      <Settings size={14} />
+                                                                    </Link>
+                                                                  </div>
+                                                                </div>
                                                                 <div className="space-y-1"><div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>{concluidas}/{total} {label}</span><span>{porcentagem}%</span></div><div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden"><div className={`h-full transition-all duration-500 ${porcentagem === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${porcentagem}%` }}></div></div></div>
                                                             </div>
                                                         );
@@ -274,6 +305,7 @@ export default function DetalhesProjeto() {
             </div>
         </div>
 
+        {/* FINANCEIRO MANTIDO IGUAL... */}
         <div className="space-y-6">
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-xl border-t-4 border-t-emerald-500">
                 <div className="flex justify-between items-center mb-6"><h2 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2"><ArrowDownCircle className="text-emerald-500" size={18}/> Receitas</h2><button onClick={() => setShowFaturaForm(!showFaturaForm)} className="bg-emerald-500 text-white p-2 rounded-full hover:bg-emerald-600 transition-all"><Plus size={16} /></button></div>
