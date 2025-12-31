@@ -70,15 +70,15 @@ export default function DetalhesProjeto() {
         });
 
         const unsubDiarios = onSnapshot(query(collection(db, `clientes/${licenseId}/diarios_de_campo`), where("projetoId", "in", [projId, Number(projId)])), (snap) => {
-            setDiarios(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setDiarios(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
         const unsubGastos = onSnapshot(collection(db, `clientes/${licenseId}/projetos/${projId}/gastos_adm`), (snap) => {
-            setGastosAdm(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setGastosAdm(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
         const unsubFatur = onSnapshot(collection(db, `clientes/${licenseId}/projetos/${projId}/faturamentos`), (snap) => {
-            setFaturamentos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            setFaturamentos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
         setLoadingData(false);
@@ -93,9 +93,9 @@ export default function DetalhesProjeto() {
     carregarTudo(); 
   }, [projId, licenseId]);
 
-  // ✅ FUNÇÕES DE EXCLUSÃO ADICIONADAS
+  // ✅ FUNÇÕES DE EXCLUSÃO
   const handleExcluirTalhao = async (id: string, nome: string) => {
-    if (!confirm(`Deseja excluir o talhão "${nome}"? Esta ação removerá o talhão da lista operacional.`)) return;
+    if (!confirm(`Deseja excluir o talhão "${nome}"?`)) return;
     try {
       await deleteDoc(doc(db, `clientes/${licenseId}/talhoes`, id));
     } catch (e) { alert("Erro ao excluir talhão."); }
@@ -211,17 +211,11 @@ export default function DetalhesProjeto() {
                     const fazendasDestaAtiv = fazendas.filter(f => f.activityId === ativ.id || f.atividadeId === ativ.id);
                     return (
                         <div key={ativ.id} className="mb-8 border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
-                            {/* ✅ CABEÇALHO DA ATIVIDADE COM EXCLUSÃO */}
                             <div className="bg-slate-900 p-4 px-8 flex justify-between items-center text-white">
                                 <div className="flex items-center gap-4">
                                   <span className="font-black text-[10px] uppercase tracking-widest">{ativ.tipo}</span>
-                                  <button 
-                                    onClick={() => handleExcluirAtividade(ativ.id, ativ.tipo)}
-                                    className="p-1 text-slate-500 hover:text-red-500 transition-colors"
-                                    title="Excluir Atividade"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
+                                  {/* ✅ BOTÃO EXCLUIR ATIVIDADE */}
+                                  <button onClick={() => handleExcluirAtividade(ativ.id, ativ.tipo)} className="p-1 text-slate-500 hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
                                 </div>
                                 <span className="text-emerald-400 text-[9px] font-bold uppercase">{ativ.metodoCubagem || "Padrão"}</span>
                             </div>
@@ -278,15 +272,8 @@ export default function DetalhesProjeto() {
                                                                   <p className="text-[10px] font-black text-slate-800 uppercase">{tal.nome}</p>
                                                                   <div className="flex items-center gap-2">
                                                                     {/* ✅ BOTÃO EXCLUIR TALHÃO */}
-                                                                    <button 
-                                                                      onClick={() => handleExcluirTalhao(tal.id, tal.nome)}
-                                                                      className="text-slate-300 hover:text-red-500 transition-colors"
-                                                                    >
-                                                                      <Trash2 size={12} />
-                                                                    </button>
-                                                                    <Link href={urlDetalhe} className="text-slate-300 hover:text-emerald-600 transition-colors">
-                                                                      <Settings size={14} />
-                                                                    </Link>
+                                                                    <button onClick={() => handleExcluirTalhao(tal.id, tal.nome)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                                                                    <Link href={urlDetalhe} className="text-slate-300 hover:text-emerald-600 transition-colors"><Settings size={14} /></Link>
                                                                   </div>
                                                                 </div>
                                                                 <div className="space-y-1"><div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase"><span>{concluidas}/{total} {label}</span><span>{porcentagem}%</span></div><div className="w-full bg-slate-200 h-1 rounded-full overflow-hidden"><div className={`h-full transition-all duration-500 ${porcentagem === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${porcentagem}%` }}></div></div></div>
@@ -305,8 +292,8 @@ export default function DetalhesProjeto() {
             </div>
         </div>
 
-        {/* FINANCEIRO MANTIDO IGUAL... */}
         <div className="space-y-6">
+            {/* FORMULÁRIOS FINANCEIROS MANTIDOS INTACTOS */}
             <div className="bg-white rounded-[40px] p-8 border border-slate-200 shadow-xl border-t-4 border-t-emerald-500">
                 <div className="flex justify-between items-center mb-6"><h2 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2"><ArrowDownCircle className="text-emerald-500" size={18}/> Receitas</h2><button onClick={() => setShowFaturaForm(!showFaturaForm)} className="bg-emerald-500 text-white p-2 rounded-full hover:bg-emerald-600 transition-all"><Plus size={16} /></button></div>
                 {showFaturaForm && (
