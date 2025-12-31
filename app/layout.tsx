@@ -7,7 +7,7 @@ import {
   Users, 
   Car,
   FileText,
-  LayoutDashboard // ✅ Adicionado ícone para o Dashboard
+  LayoutDashboard // ✅ Importado
 } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -38,7 +38,7 @@ export default function RootLayout({
 
           {/* Navegação Principal */}
           <nav className="space-y-2 flex-1">
-            {/* ✅ NOVO: Painel Executivo (Dashboard) */}
+            {/* ✅ NOVO: Painel Executivo (Dashboard) no topo */}
             <Link 
               href="/dashboard" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group"
@@ -63,7 +63,6 @@ export default function RootLayout({
               Financeiro
             </Link>
 
-            {/* ✅ Link para Emissão de Rascunho de Nota */}
             <Link 
               href="/financeiro/rascunho-nota" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300"
@@ -80,7 +79,6 @@ export default function RootLayout({
               Equipes
             </Link>
 
-            {/* ✅ Link de Frotas */}
             <Link
               href="/frota" 
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300"
@@ -90,13 +88,11 @@ export default function RootLayout({
             </Link>
           </nav>
 
-          {/* Rodapé do Menu */}
           <div className="pt-6 border-t border-slate-800 text-[10px] text-slate-500 font-medium italic">
             © 2025 GeoForest Tech
           </div>
         </aside>
 
-        {/* Conteúdo Principal das Páginas */}
         <main className="flex-1 h-screen overflow-y-auto overflow-x-hidden">
           {children}
         </main>
