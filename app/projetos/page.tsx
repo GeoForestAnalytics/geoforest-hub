@@ -1,7 +1,8 @@
 "use client"
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../lib/firebase";
-import { collection, onSnapshot, query, collectionGroup } from "firebase/firestore";
+// ✅ Adicionado deleteDoc e doc para a exclusão
+import { collection, onSnapshot, query, collectionGroup, doc, deleteDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useLicense } from "../hooks/useAuthContext"; 
 import { 
@@ -12,7 +13,8 @@ import {
   Briefcase,
   ArrowUpRight,
   Banknote,
-  Axe // ✅ Ícone para representar Cubagem
+  Axe,
+  Trash2 // ✅ Ícone de lixeira adicionado
 } from "lucide-react";
 
 interface Projeto {
@@ -30,14 +32,13 @@ export default function ProjetosPage() {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [todosDiarios, setTodosDiarios] = useState<any[]>([]);
   const [todosGastosAdm, setTodosGastosAdm] = useState<any[]>([]);
-  const [totalCubagens, setTotalCubagens] = useState(0); // ✅ Novo estado para Cubagem
+  const [totalCubagens, setTotalCubagens] = useState(0); 
   const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
     if (!licenseId) return;
     setLoadingData(true);
 
-    // 1. Projetos (Resumo de Amostras)
     const unsubProj = onSnapshot(collection(db, `clientes/${licenseId}/projetos`), (snapshot) => {
       setProjetos(snapshot.docs.map(doc => ({
         id: doc.id,
@@ -47,12 +48,10 @@ export default function ProjetosPage() {
       } as Projeto)));
     });
 
-    // 2. Diários (Custos de Campo)
     const unsubDiarios = onSnapshot(collection(db, `clientes/${licenseId}/diarios_de_campo`), (snapshot) => {
       setTodosDiarios(snapshot.docs.map(doc => doc.data()));
     });
 
-    // 3. Gastos ADM (Global)
     const unsubGastosGlobal = onSnapshot(collectionGroup(db, "gastos_adm"), (snapshot) => {
         const gastosDaEmpresa = snapshot.docs
             .filter(doc => doc.ref.path.includes(licenseId))
@@ -60,9 +59,7 @@ export default function ProjetosPage() {
         setTodosGastosAdm(gastosDaEmpresa);
     });
 
-    // 4. ✅ MONITORAMENTO DE CUBAGEM (Produção de Árvores)
     const unsubCubagem = onSnapshot(collection(db, `clientes/${licenseId}/dados_cubagem`), (snapshot) => {
-        // Contamos apenas árvores que possuem alturaTotal (indicativo de finalização técnica)
         const concluidas = snapshot.docs.filter(doc => (Number(doc.data().alturaTotal) || 0) > 0).length;
         setTotalCubagens(concluidas);
         setLoadingData(false);
@@ -76,9 +73,25 @@ export default function ProjetosPage() {
     };
   }, [licenseId]);
 
-  // --- CÁLCULOS EXECUTIVOS GLOBAIS ATUALIZADOS ---
+  // ✅ FUNÇÃO PARA EXCLUIR PROJETO
+  const handleExcluirProjeto = async (e: React.MouseEvent, id: string, nome: string) => {
+    e.preventDefault(); // Impede a navegação do Link
+    e.stopPropagation(); // Impede que o clique chegue ao card
+
+    if (!confirm(`Tem certeza que deseja excluir permanentemente o projeto "${nome}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, `clientes/${licenseId}/projetos`, id));
+      // O onSnapshot atualizará a lista automaticamente
+    } catch (error) {
+      console.error("Erro ao excluir:", error);
+      alert("Erro ao excluir projeto. Verifique suas permissões.");
+    }
+  };
+
   const globalKpis = useMemo(() => {
-    // Soma Custos
     const custoCampo = todosDiarios.reduce((acc, d) => acc + 
         (Number(d.abastecimentoValor || d.abastecimento_valor) || 0) + 
         (Number(d.pedagioValor || d.pedagio_valor) || 0) + 
@@ -88,19 +101,17 @@ export default function ProjetosPage() {
     const custoAdm = todosGastosAdm.reduce((acc, g) => acc + (Number(g.valor) || 0), 0);
     const investimentoTotal = custoCampo + custoAdm;
 
-    // Soma Produção (Amostras + Cubagens)
-    const amostrasTotais = projetos.reduce((acc, p) => acc + p.talhoesConcluidos, 0);
-    const producaoTotalUnidades = amostrasTotais + totalCubagens; // ✅ Soma das duas frentes
+    const amostrasFeitas = projetos.reduce((acc, p) => acc + p.talhoesConcluidos, 0);
+    const producaoTotalUnidades = amostrasFeitas + totalCubagens;
     
     return {
       investimentoTotal,
-      amostrasTotais,
+      amostrasTotais: amostrasFeitas,
       cubagensTotais: totalCubagens,
       unidadesTotais: producaoTotalUnidades,
-      // Eficiência agora considera Amostras + Árvores Cubadas
       eficiencia: producaoTotalUnidades > 0 ? investimentoTotal / producaoTotalUnidades : 0,
       progressoGlobal: projetos.reduce((acc, p) => acc + p.totalTalhoes, 0) > 0 
-        ? Math.round((amostrasTotais / projetos.reduce((acc, p) => acc + p.totalTalhoes, 0)) * 100) 
+        ? Math.round((amostrasFeitas / projetos.reduce((acc, p) => acc + p.totalTalhoes, 0)) * 100) 
         : 0
     };
   }, [todosDiarios, todosGastosAdm, projetos, totalCubagens]);
@@ -175,8 +186,18 @@ export default function ProjetosPage() {
         {projetos.map((proj) => {
           const porcentagem = proj.totalTalhoes > 0 ? Math.round((proj.talhoesConcluidos / proj.totalTalhoes) * 100) : 0;
           return (
-            <Link href={`/projetos/${proj.id}`} key={proj.id}>
-              <div className="bg-white border border-slate-200 rounded-[32px] p-8 shadow-sm hover:shadow-2xl hover:border-emerald-500 transition-all cursor-pointer group">
+            <Link href={`/projetos/${proj.id}`} key={proj.id} className="relative group">
+              
+              {/* ✅ BOTÃO EXCLUIR: Posicionado de forma absoluta no canto superior direito */}
+              <button 
+                onClick={(e) => handleExcluirProjeto(e, proj.id, proj.nome)}
+                className="absolute top-4 right-4 z-10 p-2 bg-red-50 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                title="Excluir Projeto"
+              >
+                <Trash2 size={16} />
+              </button>
+
+              <div className="bg-white border border-slate-200 rounded-[32px] p-8 shadow-sm hover:shadow-2xl hover:border-emerald-500 transition-all cursor-pointer">
                 <div className="flex justify-between items-start mb-6">
                   <div>
                       <h3 className="font-black text-xl text-slate-900 group-hover:text-emerald-600 uppercase tracking-tighter transition-colors">{proj.nome}</h3>
