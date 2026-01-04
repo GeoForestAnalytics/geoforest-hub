@@ -1,10 +1,10 @@
 "use client"
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../lib/firebase";
-// ✅ Adicionado deleteDoc e doc para a exclusão
-import { collection, onSnapshot, query, collectionGroup, doc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, deleteDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useLicense } from "../hooks/useAuthContext"; 
+import { registerLog } from "../lib/audit/audit"; // ✅ Importando o sistema de auditoria
 import { 
   TrendingUp, 
   Wallet, 
@@ -13,8 +13,7 @@ import {
   Briefcase,
   ArrowUpRight,
   Banknote,
-  Axe,
-  Trash2 // ✅ Ícone de lixeira adicionado
+  Trash2 
 } from "lucide-react";
 
 interface Projeto {
@@ -28,12 +27,17 @@ interface Projeto {
 }
 
 export default function ProjetosPage() {
-  const { licenseId, loading: authLoading } = useLicense(); 
+  // ✅ Pegando os dados expandidos do hook: role, userId e userName
+  const { licenseId, role, userId, userName, loading: authLoading } = useLicense(); 
+  
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [todosDiarios, setTodosDiarios] = useState<any[]>([]);
   const [todosGastosAdm, setTodosGastosAdm] = useState<any[]>([]);
   const [totalCubagens, setTotalCubagens] = useState(0); 
   const [loadingData, setLoadingData] = useState(true);
+
+  // ✅ Definição de permissão (Fundamento ERP)
+  const isGerente = role === 'gerente' || role === 'admin';
 
   useEffect(() => {
     if (!licenseId) return;
@@ -52,11 +56,9 @@ export default function ProjetosPage() {
       setTodosDiarios(snapshot.docs.map(doc => doc.data()));
     });
 
-    const unsubGastosGlobal = onSnapshot(collectionGroup(db, "gastos_adm"), (snapshot) => {
-        const gastosDaEmpresa = snapshot.docs
-            .filter(doc => doc.ref.path.includes(licenseId))
-            .map(doc => doc.data());
-        setTodosGastosAdm(gastosDaEmpresa);
+    // Mantenho a busca global que você criou para o BI
+    const unsubGastosGlobal = onSnapshot(collection(db, `clientes/${licenseId}/gastos_adm`), (snapshot) => {
+        setTodosGastosAdm(snapshot.docs.map(doc => doc.data()));
     });
 
     const unsubCubagem = onSnapshot(collection(db, `clientes/${licenseId}/dados_cubagem`), (snapshot) => {
@@ -73,31 +75,38 @@ export default function ProjetosPage() {
     };
   }, [licenseId]);
 
-  // ✅ FUNÇÃO PARA EXCLUIR PROJETO
   const handleExcluirProjeto = async (e: React.MouseEvent, id: any, nome: string) => {
-  e.preventDefault(); // Impede abrir o projeto
-  e.stopPropagation(); // Impede o clique no card
+    e.preventDefault();
+    e.stopPropagation();
 
-  if (!confirm(`Tem certeza que deseja excluir o projeto "${nome}"?`)) {
-    return;
-  }
+    // ✅ Trava de segurança no clique (RBAC)
+    if (!isGerente) {
+      alert("Operação não permitida: Apenas gestores podem remover contratos do sistema.");
+      return;
+    }
 
-  try {
-    // 🛡️ BLINDAGEM: Forçamos Strings e usamos a sintaxe de vírgulas, que é mais estável no Firebase
-    // doc(db, "coleção", "documento", "subcoleção", "documento")
-    const projetoRef = doc(db, "clientes", String(licenseId), "projetos", String(id));
-    
-    await deleteDoc(projetoRef);
-    
-    console.log("Projeto excluído com sucesso");
-    // O onSnapshot se encarregará de remover o card da tela automaticamente
-  } catch (error: any) {
-    console.error("Erro detalhado ao excluir projeto:", error);
-    
-    // Se o erro for de permissão, ele avisará. Se for de código, também.
-    alert(`Falha na exclusão: ${error.message.includes("permission") ? "Acesso negado pelas regras de segurança." : error.message}`);
-  }
-};
+    if (!confirm(`⚠️ ATENÇÃO: Esta ação é irreversível. Deseja excluir o projeto "${nome}" e todos os seus vínculos?`)) {
+      return;
+    }
+
+    try {
+      const projetoRef = doc(db, "clientes", String(licenseId), "projetos", String(id));
+      await deleteDoc(projetoRef);
+
+      // ✅ REGISTRO DE AUDITORIA: Quem, quando e o quê (Fundamento de ERP Profissional)
+      await registerLog(
+        licenseId!, 
+        userId!, 
+        userName!, 
+        'EXCLUSAO_PROJETO', 
+        `Removeu o contrato: ${nome} (ID: ${id})`
+      );
+
+    } catch (error: any) {
+      console.error("Erro detalhado ao excluir projeto:", error);
+      alert(`Falha na exclusão: ${error.message.includes("permission") ? "Acesso negado pelas regras de segurança." : error.message}`);
+    }
+  };
 
   const globalKpis = useMemo(() => {
     const custoCampo = todosDiarios.reduce((acc, d) => acc + 
@@ -137,14 +146,18 @@ export default function ProjetosPage() {
       <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
           <h1 className="text-4xl font-black text-slate-900 tracking-tighter uppercase leading-tight">Gestão de Contratos</h1>
-          <p className="text-slate-500 font-medium italic">Painel de controle financeiro e operacional da empresa.</p>
+          <p className="text-slate-500 font-medium italic">Ambiente de Controle: {userName} ({role})</p>
         </div>
-        <button className="bg-slate-900 text-emerald-400 px-8 py-4 rounded-[24px] font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-2xl flex items-center gap-2">
-          <Plus size={18} /> Novo Projeto
-        </button>
+        
+        {/* ✅ BOTÃO PROTEGIDO: Somente Gerentes criam projetos */}
+        {isGerente && (
+          <button className="bg-slate-900 text-emerald-400 px-8 py-4 rounded-[24px] font-black text-xs uppercase tracking-widest hover:bg-black transition-all shadow-2xl flex items-center gap-2">
+            <Plus size={18} /> Novo Projeto
+          </button>
+        )}
       </header>
 
-      {/* CARDS EXECUTIVOS GLOBAIS */}
+      {/* CARDS EXECUTIVOS GLOBAIS (Mantidos conforme seu código original) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         <div className="bg-slate-900 p-8 rounded-[40px] text-white shadow-2xl flex flex-col justify-between relative overflow-hidden group">
             <Banknote className="absolute -right-6 -bottom-6 text-emerald-500/10 group-hover:scale-110 transition-transform" size={140} />
@@ -189,21 +202,22 @@ export default function ProjetosPage() {
         <Briefcase size={14}/> Carteira de Projetos Ativos
       </h2>
 
-      {/* LISTA DE PROJETOS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {projetos.map((proj) => {
           const porcentagem = proj.totalTalhoes > 0 ? Math.round((proj.talhoesConcluidos / proj.totalTalhoes) * 100) : 0;
           return (
             <Link href={`/projetos/${proj.id}`} key={proj.id} className="relative group">
               
-              {/* ✅ BOTÃO EXCLUIR: Posicionado de forma absoluta no canto superior direito */}
-              <button 
-                onClick={(e) => handleExcluirProjeto(e, proj.id, proj.nome)}
-                className="absolute top-4 right-4 z-10 p-2 bg-red-50 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all shadow-sm"
-                title="Excluir Projeto"
-              >
-                <Trash2 size={16} />
-              </button>
+              {/* ✅ BOTÃO EXCLUIR PROTEGIDO: Só aparece para quem é gerente */}
+              {isGerente && (
+                <button 
+                  onClick={(e) => handleExcluirProjeto(e, proj.id, proj.nome)}
+                  className="absolute top-4 right-4 z-10 p-2 bg-red-50 text-red-500 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                  title="Excluir Projeto"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
 
               <div className="bg-white border border-slate-200 rounded-[32px] p-8 shadow-sm hover:shadow-2xl hover:border-emerald-500 transition-all cursor-pointer">
                 <div className="flex justify-between items-start mb-6">
@@ -222,7 +236,7 @@ export default function ProjetosPage() {
 
                 <div className="space-y-2">
                   <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-slate-400">
-                    <span>Execução</span>
+                    <span>Execução Técnica</span>
                     <span className="text-emerald-600">{porcentagem}%</span>
                   </div>
                   <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">

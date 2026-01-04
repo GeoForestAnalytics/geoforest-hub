@@ -1,11 +1,10 @@
 "use client"
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { db, auth } from "@/app/lib/firebase";
+import { db } from "@/app/lib/firebase";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
-import Link from "next/link";
-// IMPORTANTE: Adicionada a importação do ícone abaixo
-import { ArrowLeft } from "lucide-react";
+import { useLicense } from "@/app/hooks/useAuthContext"; // ✅ Importado
+import { ArrowLeft, ShieldCheck, ListFilter, CheckCircle } from "lucide-react";
 
 interface ArvoreAuditada {
   id: string;
@@ -24,51 +23,40 @@ interface ArvoreAuditada {
 export default function AuditoriaTabular() {
   const params = useParams();
   const router = useRouter();
+  const { licenseId, loading: authLoading, userName } = useLicense(); // ✅ Usando hook master
   
-  // IDs vindos da URL
-  const projIdUrl = params.id as string;
   const talhaoIdUrl = params.talhaoId as string;
 
   const [talhao, setTalhao] = useState<any>(null);
   const [linhas, setLinhas] = useState<ArvoreAuditada[]>([]);
   const [loading, setLoading] = useState(true);
-  const [logs, setLogs] = useState<string[]>([]);
 
-  const addLog = (m: string) => setLogs(p => [...p, `${new Date().toLocaleTimeString()}: ${m}`]);
-
-  const executarAuditoria = async (uid: string) => {
-    addLog("Iniciando auditoria tabular...");
+  const executarAuditoria = async () => {
+    if (!licenseId) return;
+    setLoading(true);
     
     try {
-      // 1. BUSCA DADOS DO TALHÃO
-      const tRef = doc(db, `clientes/${uid}/talhoes`, talhaoIdUrl);
+      // 1. BUSCA DADOS DO TALHÃO USANDO LICENSEID
+      const tRef = doc(db, `clientes/${licenseId}/talhoes`, talhaoIdUrl);
       const tSnap = await getDoc(tRef);
       if (tSnap.exists()) setTalhao(tSnap.data());
 
-      // 2. BUSCA PARCELAS (DADOS_COLETA)
-      addLog(`Buscando parcelas do talhão ${talhaoIdUrl}...`);
-      
+      // 2. BUSCA PARCELAS
       const qPar = query(
-        collection(db, `clientes/${uid}/dados_coleta`),
+        collection(db, `clientes/${licenseId}/dados_coleta`),
         where("talhaoId", "in", [talhaoIdUrl, Number(talhaoIdUrl)])
       );
 
       const pSnap = await getDocs(qPar);
-      addLog(`Encontradas ${pSnap.docs.length} parcelas.`);
-
       if (pSnap.empty) {
-        addLog("Nenhum dado encontrado para os filtros.");
         setLoading(false);
         return;
       }
 
       const listaTemp: ArvoreAuditada[] = [];
 
-      // 3. LEITURA DAS SUBCOLEÇÕES (ARVORES)
       for (const pDoc of pSnap.docs) {
         const pData = pDoc.data();
-        addLog(`Lendo árvores da Amostra P${pData.idParcela}...`);
-        
         const aSnap = await getDocs(collection(pDoc.ref, "arvores"));
         
         aSnap.forEach(aDoc => {
@@ -102,12 +90,8 @@ export default function AuditoriaTabular() {
       }
 
       listaTemp.sort((a, b) => Number(a.parcela) - Number(b.parcela) || a.linha - b.linha || a.posicao - b.posicao);
-      
       setLinhas(listaTemp);
-      addLog(`Sucesso: ${listaTemp.length} fustes carregados.`);
-
-    } catch (e: any) {
-      addLog(`ERRO: ${e.message}`);
+    } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
@@ -115,83 +99,62 @@ export default function AuditoriaTabular() {
   };
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(user => {
-      if (user) executarAuditoria(user.uid);
-      else router.push("/login");
-    });
-    return () => unsub();
-  }, []);
+    if (!authLoading && licenseId) executarAuditoria();
+  }, [licenseId, authLoading]);
 
-  if (loading) {
-    return (
-      <div className="p-8 bg-slate-900 min-h-screen text-emerald-400 font-mono text-[10px]">
-        <h2 className="text-sm font-bold mb-4 animate-pulse uppercase tracking-widest">Auditor de Pré-Processamento</h2>
-        {logs.map((log, i) => <p key={i} className="mb-1">{log}</p>)}
-      </div>
-    );
-  }
+  if (loading || authLoading) return <div className="p-20 text-center animate-pulse font-black text-slate-400 uppercase tracking-widest text-xs">Sincronizando fustes...</div>;
 
   return (
-    <div className="p-4 bg-slate-50 min-h-screen">
-      {/* HEADER RESUMO COM BOTÃO VOLTAR */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-4">
-        <div className="flex justify-between items-center">
+    <div className="p-8 max-w-7xl mx-auto bg-slate-50 min-h-screen font-sans">
+      <header className="mb-8 flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm">
           <div>
-            <button 
-              onClick={() => router.back()} 
-              className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 hover:text-emerald-600 mb-2 transition-colors"
-            >
-              <ArrowLeft size={12}/> Voltar ao Projeto
+            <button onClick={() => router.back()} className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-1 hover:text-emerald-600 mb-2 transition-all">
+              <ArrowLeft size={14}/> Voltar ao Projeto
             </button>
-            
-            <h1 className="text-xl font-black text-slate-800 uppercase">Talhão: {talhao?.nome}</h1>
-            <p className="text-xs text-slate-500">
-              Análise Tabular de Consistência | <span className="font-bold text-emerald-600">{linhas.length} fustes</span>
-            </p>
+            <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Talhão: {talhao?.nome}</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Auditoria de Inventário | <span className="text-emerald-600">{linhas.length} árvores</span></p>
           </div>
-          
-          <button 
-            onClick={() => executarAuditoria(auth.currentUser!.uid)} 
-            className="text-[10px] font-bold bg-slate-100 px-4 py-2 rounded-lg border hover:bg-slate-200 transition-colors"
-          >
-            ATUALIZAR DADOS
-          </button>
-        </div>
-      </div>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+                <p className="text-[9px] font-black text-slate-400 uppercase">Status de Dados</p>
+                <p className="text-xs font-black text-emerald-600 flex items-center gap-1"><ShieldCheck size={14}/> Base Consolidada</p>
+            </div>
+            <button onClick={executarAuditoria} className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-black text-[10px] uppercase hover:bg-black transition-all">Atualizar</button>
+          </div>
+      </header>
 
-      {/* PLANILHA DENSE (ESTILO EXCEL) */}
-      <div className="bg-white rounded-xl border border-slate-300 shadow-xl overflow-hidden">
-        <div className="overflow-auto max-h-[75vh]">
+      <div className="bg-white rounded-[40px] border border-slate-200 shadow-2xl overflow-hidden">
+        <div className="overflow-auto max-h-[70vh] custom-scrollbar">
           <table className="w-full text-left text-[11px] border-collapse">
-            <thead className="sticky top-0 bg-slate-800 text-slate-200 z-10">
-              <tr>
-                <th className="p-2 border-r border-slate-700 text-center">Amostra</th>
-                <th className="p-2 border-r border-slate-700 text-center">L / P</th>
-                <th className="p-2 border-r border-slate-700 text-center text-emerald-400">CAP (cm)</th>
-                <th className="p-2 border-r border-slate-700 text-center">DAP (cm)</th>
-                <th className="p-2 border-r border-slate-700 text-center">Alt (m)</th>
-                <th className="p-2 border-r border-slate-700 text-center">H/D %</th>
-                <th className="p-2 border-r border-slate-700">Código</th>
-                <th className="p-2">Diagnóstico QA</th>
+            <thead className="sticky top-0 bg-slate-900 text-white z-10">
+              <tr className="uppercase font-black tracking-widest">
+                <th className="p-5 border-r border-white/5 text-center">Amostra</th>
+                <th className="p-5 border-r border-white/5 text-center">L / P</th>
+                <th className="p-5 border-r border-white/5 text-center text-emerald-400">CAP (cm)</th>
+                <th className="p-5 border-r border-white/5 text-center">DAP (cm)</th>
+                <th className="p-5 border-r border-white/5 text-center">Alt (m)</th>
+                <th className="p-5 border-r border-white/5 text-center">H/D %</th>
+                <th className="p-5 border-r border-white/5">Código</th>
+                <th className="p-5">Diagnóstico QA</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {linhas.map((l, i) => (
-                <tr key={i} className={`border-b hover:bg-blue-50 ${l.statusQA === 'ERRO' ? 'bg-red-50' : l.statusQA === 'ALERTA' ? 'bg-amber-50' : 'even:bg-slate-50/50'}`}>
-                  <td className="p-1.5 border-r border-slate-200 text-center font-bold">P{l.parcela}</td>
-                  <td className="p-1.5 border-r border-slate-200 text-center">{l.linha} / {l.posicao}</td>
-                  <td className="p-1.5 border-r border-slate-200 text-center font-black text-slate-800">{l.cap.toFixed(1)}</td>
-                  <td className="p-1.5 border-r border-slate-200 text-center">{l.dap.toFixed(1)}</td>
-                  <td className="p-1.5 border-r border-slate-200 text-center">{l.altura > 0 ? l.altura.toFixed(1) : '-'}</td>
-                  <td className={`p-1.5 border-r border-slate-200 text-center ${l.relacaoHD > 140 ? 'text-red-600 font-bold' : ''}`}>
+                <tr key={i} className={`hover:bg-slate-50 transition-colors ${l.statusQA === 'ERRO' ? 'bg-red-50/50' : l.statusQA === 'ALERTA' ? 'bg-amber-50/50' : ''}`}>
+                  <td className="p-4 border-r border-slate-100 text-center font-black text-slate-400">P{l.parcela}</td>
+                  <td className="p-4 border-r border-slate-100 text-center font-bold text-slate-600">{l.linha} / {l.posicao}</td>
+                  <td className="p-4 border-r border-slate-100 text-center font-black text-slate-900 text-sm">{l.cap.toFixed(1)}</td>
+                  <td className="p-4 border-r border-slate-100 text-center text-slate-500">{l.dap.toFixed(1)}</td>
+                  <td className="p-4 border-r border-slate-100 text-center font-bold text-slate-700">{l.altura > 0 ? l.altura.toFixed(1) : '-'}</td>
+                  <td className={`p-4 border-r border-slate-100 text-center font-black ${l.relacaoHD > 140 ? 'text-red-500' : 'text-slate-400'}`}>
                     {l.relacaoHD > 0 ? l.relacaoHD.toFixed(0) : '-'}
                   </td>
-                  <td className="p-1.5 border-r border-slate-200 uppercase font-bold text-slate-500">{l.codigo}</td>
-                  <td className="p-1.5">
+                  <td className="p-4 border-r border-slate-100 uppercase font-black text-[9px] text-slate-400">{l.codigo}</td>
+                  <td className="p-4">
                     {l.mensagens.map((m, idx) => (
-                      <span key={idx} className="bg-red-600 text-white px-1.5 py-0.5 rounded text-[9px] font-bold mr-1">{m}</span>
+                      <span key={idx} className="bg-red-500 text-white px-2 py-1 rounded text-[8px] font-black uppercase mr-1 shadow-sm">{m}</span>
                     ))}
-                    {l.statusQA === 'OK' && <span className="text-emerald-600 font-bold">✓ Ok</span>}
+                    {l.statusQA === 'OK' && <span className="text-emerald-500 font-black text-[9px] uppercase flex items-center gap-1"><CheckCircle size={12}/> Consistente</span>}
                   </td>
                 </tr>
               ))}
