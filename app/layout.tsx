@@ -12,7 +12,8 @@ import {
   Car,
   FileText,
   LayoutDashboard,
-  LogOut // Ícone de Sair
+  LogOut,
+  Map // ✅ Ícone de Mapa adicionado
 } from "lucide-react";
 
 export default function RootLayout({
@@ -55,6 +56,11 @@ export default function RootLayout({
               <LayoutDashboard size={20} /> Painel Executivo
             </Link>
 
+            {/* ✅ NOVO ITEM: MONITORAMENTO GEOGRÁFICO */}
+            <Link href="/mapa" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group text-slate-300">
+              <Map size={20} /> Visão Geográfica
+            </Link>
+
             <Link href="/projetos" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-emerald-600/10 hover:text-emerald-400 transition-all font-medium group">
               <TreeDeciduous size={20} /> Projetos
             </Link>
@@ -87,7 +93,7 @@ export default function RootLayout({
 
           {/* Rodapé do Menu */}
           <div className="pt-6 border-t border-slate-800 text-[10px] text-slate-500 font-medium italic">
-            © 2025 GeoForest Tech
+            © 2026 GeoForest Tech
           </div>
         </aside>
 

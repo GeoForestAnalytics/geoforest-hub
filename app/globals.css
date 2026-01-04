@@ -1,33 +1,45 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
+/* Configurações de Tema do Tailwind v4 */
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+/* Variáveis Globais */
 :root {
-  --background: #f8fafc; /* Um cinza bem clarinho (slate-50) */
-  --foreground: #0f172a;
+  --background: #f8fafc; /* slate-50 */
+  --foreground: #0f172a; /* slate-900 */
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
+/* Reset e Estilos de Base */
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: Arial, Helvetica, sans-serif;
+  }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* CSS do Leaflet para os mapas funcionarem */
+@import "leaflet/dist/leaflet.css";
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 40px;
+  z-index: 1;
+}
+
+/* Estilização dos Balões do Mapa */
+.custom-map-label {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.custom-map-label::before {
+  display: none !important;
 }
