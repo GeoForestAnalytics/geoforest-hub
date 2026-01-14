@@ -1,0 +1,66 @@
+name: geoforestweb
+description: "Geo Forest Analytics."
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0' # Alterei para aceitar qualquer Dart 3.x para evitar erros
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # --- Firebase ---
+  # Versões compatíveis e estáveis
+  firebase_core: ^3.15.2
+  cloud_firestore: ^5.6.12
+  firebase_auth: ^5.7.0
+  firebase_storage: ^12.4.10
+  lottie: ^2.7.0
+  
+  # --- Outros ---
+  image_picker: ^1.2.1
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.5+1
+  shared_preferences: ^2.5.3
+  url_launcher: ^6.3.2
+  intl: ^0.20.2
+  geolocator: ^14.0.2
+  google_fonts: ^6.3.2
+  flutter_animate: ^4.5.2
+  audioplayers: ^6.5.1
+  video_player: ^2.8.1 # <--- ADICIONE ISSO
+
+   # Gerenciamento de Estado (O melhor atualmente)
+  flutter_riverpod: ^2.4.9
+  
+  # Rotas para Web (Essencial para URLs limpas ex: site.com/manuais)
+  go_router: ^13.0.0
+  
+  
+  font_awesome_flutter: ^10.6.0
+  
+  # Renderização de Fórmulas Matemáticas (LaTeX)
+  flutter_math_fork: ^0.7.1
+
+  # Youtube Player
+  youtube_player_iframe: ^5.0.0
+  
+  
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+  - assets/images/
+  - assets/sounds/
+  
+
+  
+  
+  
